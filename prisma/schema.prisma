@@ -1,0 +1,288 @@
+// ==============================================================================
+// PayPilot HRMS & Payroll SaaS - Relational Database Schema
+// Optimized for Supabase PostgreSQL
+// ==============================================================================
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  HR_MANAGER
+  MANAGER
+  EMPLOYEE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+  INTERN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  REMOTE
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  CASUAL
+  MATERNITY
+  PATERNITY
+  UNPAID
+  BEREAVEMENT
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollStatus {
+  DRAFT
+  CALCULATING
+  APPROVED
+  PAID
+  VOID
+}
+
+enum PayslipStatus {
+  DRAFT
+  ISSUED
+  PAID
+}
+
+// ------------------------------------------------------------------------------
+// Multi-Tenant Core Models
+// ------------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  currency  String   @default("USD")
+  timezone  String   @default("UTC")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  users             User[]
+  departments       Department[]
+  employees         Employee[]
+  attendanceRecords AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
+  payrollRuns       PayrollRun[]
+  payslips          Payslip[]
+  auditLogs         AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  email          String    @unique
+  role           UserRole  @default(EMPLOYEE)
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relationships
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee?
+  reviewedLeaves LeaveRequest[] @relation("ReviewedLeaves")
+  auditLogs      AuditLog[]     @relation("ActorAuditLogs")
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  code           String
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employees    Employee[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("departments")
+}
+
+model Employee {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  departmentId   String?        @map("department_id")
+  userId         String?        @unique @map("user_id")
+  employeeNumber String         @map("employee_number")
+  firstName      String         @map("first_name")
+  lastName       String         @map("last_name")
+  email          String
+  phone          String?
+  jobTitle       String         @map("job_title")
+  employmentType EmploymentType @default(FULL_TIME) @map("employment_type")
+  status         EmployeeStatus @default(ACTIVE)
+  joinedAt       DateTime       @map("joined_at") @db.Date
+  baseSalary     Decimal        @map("base_salary") @db.Decimal(12, 2)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department        Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendanceRecords AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
+  payslips          Payslip[]
+
+  @@unique([organizationId, employeeNumber])
+  @@index([organizationId])
+  @@index([departmentId])
+  @@map("employees")
+}
+
+model AttendanceRecord {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  employeeId     String           @map("employee_id")
+  workDate       DateTime         @map("work_date") @db.Date
+  status         AttendanceStatus @default(PRESENT)
+  checkInTime    DateTime?        @map("check_in_time")
+  checkOutTime   DateTime?        @map("check_out_time")
+  notes          String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, workDate])
+  @@index([organizationId, workDate])
+  @@map("attendance_records")
+}
+
+model LeaveRequest {
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  employeeId     String      @map("employee_id")
+  leaveType      LeaveType   @map("leave_type")
+  startDate      DateTime    @map("start_date") @db.Date
+  endDate        DateTime    @map("end_date") @db.Date
+  totalDays      Decimal     @map("total_days") @db.Decimal(4, 1)
+  reason         String
+  status         LeaveStatus @default(PENDING)
+  reviewedById   String?     @map("reviewed_by_id")
+  reviewedAt     DateTime?   @map("reviewed_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("ReviewedLeaves", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([employeeId])
+  @@map("leave_requests")
+}
+
+model PayrollRun {
+  id              String        @id @default(uuid())
+  organizationId  String        @map("organization_id")
+  periodStart     DateTime      @map("period_start") @db.Date
+  periodEnd       DateTime      @map("period_end") @db.Date
+  payDate         DateTime      @map("pay_date") @db.Date
+  status          PayrollStatus @default(DRAFT)
+  totalGross      Decimal       @default(0.00) @map("total_gross") @db.Decimal(14, 2)
+  totalDeductions Decimal       @default(0.00) @map("total_deductions") @db.Decimal(14, 2)
+  totalNet        Decimal       @default(0.00) @map("total_net") @db.Decimal(14, 2)
+  processedById   String?       @map("processed_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payslips     Payslip[]
+
+  @@unique([organizationId, periodStart, periodEnd])
+  @@index([organizationId, status])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id              String        @id @default(uuid())
+  organizationId  String        @map("organization_id")
+  payrollRunId    String        @map("payroll_run_id")
+  employeeId      String        @map("employee_id")
+  grossPay        Decimal       @map("gross_pay") @db.Decimal(12, 2)
+  totalDeductions Decimal       @map("total_deductions") @db.Decimal(12, 2)
+  netPay          Decimal       @map("net_pay") @db.Decimal(12, 2)
+  currency        String        @default("USD")
+  status          PayslipStatus @default(DRAFT)
+  documentUrl     String?       @map("document_url")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payrollRun   PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([payrollRunId, employeeId])
+  @@index([organizationId])
+  @@index([employeeId])
+  @@map("payslips")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  actorId        String?  @map("actor_id")
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

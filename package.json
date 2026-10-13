@@ -1,0 +1,26 @@
+{
+  "name": "paypilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant HRMS and Payroll SaaS Foundation",
+  "workspaces": [
+    "apps/web",
+    "apps/api"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"api,web\" -c \"blue,green\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\"",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
+    "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prisma": "5.22.0"
+  }
+}
