@@ -1,4 +1,4 @@
-import { Response, Router } from 'express';
+import { RequestHandler, Router } from 'express';
 import { ZodTypeAny } from 'zod';
 import { UserRole } from '@prisma/client';
 import { requireAuth, requireRole, tenantRouteHandler } from '../middleware/auth';
@@ -19,11 +19,7 @@ import {
   updateEmployee,
 } from './employees.service';
 
-export const employeesRouter = Router();
-
 const HR_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.HR_MANAGER] as const;
-
-employeesRouter.use(requireAuth, requireRole(...HR_ROLES));
 
 function parse<T extends ZodTypeAny>(schema: T, value: unknown): ReturnType<T['parse']> {
   const result = schema.safeParse(value);
@@ -48,57 +44,80 @@ function actor(req: AuthenticatedRequest): { organizationId: string; userId: str
   return { organizationId: req.auth.organization.id, userId: req.auth.user.id };
 }
 
-employeesRouter.get(
-  '/',
-  tenantRouteHandler(async (req: AuthenticatedRequest, res: Response, tx) => {
-    const { organizationId } = actor(req);
-    const query = parse(employeeListQuerySchema, req.query);
-    const result = await listEmployees(tx, organizationId, query);
-    res.json({ success: true, data: result });
-  })
-);
+/**
+ * The authentication middleware is injectable so route behavior can be tested
+ * over real HTTP without a Keycloak round trip. Production uses `requireAuth`.
+ */
+export function createEmployeesRouter(
+  authMiddleware: RequestHandler = requireAuth
+): Router {
+  const router = Router();
 
-employeesRouter.get(
-  '/:id',
-  tenantRouteHandler(async (req: AuthenticatedRequest, res: Response, tx) => {
-    const { organizationId } = actor(req);
-    const id = parse(employeeIdSchema, req.params.id);
-    const employee = await getEmployee(tx, organizationId, id);
-    res.json({ success: true, data: { employee } });
-  })
-);
+  router.use(authMiddleware, requireRole(...HR_ROLES));
 
-employeesRouter.post(
-  '/',
-  tenantRouteHandler(async (req: AuthenticatedRequest, res: Response, tx) => {
-    const { organizationId, userId } = actor(req);
-    const input = parse(employeeCreateSchema, req.body);
-    const employee = await createEmployee(tx, organizationId, userId, input);
-    res.status(201).location(`/api/employees/${employee.id}`).json({
-      success: true,
-      data: { employee },
-    });
-  })
-);
+  router.get(
+    '/',
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId } = actor(req);
+      const query = parse(employeeListQuerySchema, req.query);
+      const result = await listEmployees(tx, organizationId, query);
+      return { body: { success: true, data: result } };
+    })
+  );
 
-employeesRouter.patch(
-  '/:id/status',
-  tenantRouteHandler(async (req: AuthenticatedRequest, res: Response, tx) => {
-    const { organizationId, userId } = actor(req);
-    const id = parse(employeeIdSchema, req.params.id);
-    const { status } = parse(employeeStatusSchema, req.body);
-    const employee = await changeEmployeeStatus(tx, organizationId, userId, id, status);
-    res.json({ success: true, data: { employee } });
-  })
-);
+  router.get(
+    '/:id',
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId } = actor(req);
+      const id = parse(employeeIdSchema, req.params.id);
+      const employee = await getEmployee(tx, organizationId, id);
+      return { body: { success: true, data: { employee } } };
+    })
+  );
 
-employeesRouter.patch(
-  '/:id',
-  tenantRouteHandler(async (req: AuthenticatedRequest, res: Response, tx) => {
-    const { organizationId, userId } = actor(req);
-    const id = parse(employeeIdSchema, req.params.id);
-    const input = parse(employeeUpdateSchema, req.body);
-    const employee = await updateEmployee(tx, organizationId, userId, id, input);
-    res.json({ success: true, data: { employee } });
-  })
-);
+  router.post(
+    '/',
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const input = parse(employeeCreateSchema, req.body);
+      const employee = await createEmployee(tx, organizationId, userId, input);
+      return {
+        status: 201,
+        location: `/api/employees/${employee.id}`,
+        body: { success: true, data: { employee } },
+      };
+    })
+  );
+
+  router.patch(
+    '/:id/status',
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(employeeIdSchema, req.params.id);
+      const { status } = parse(employeeStatusSchema, req.body);
+      const employee = await changeEmployeeStatus(
+        tx,
+        organizationId,
+        userId,
+        id,
+        status
+      );
+      return { body: { success: true, data: { employee } } };
+    })
+  );
+
+  router.patch(
+    '/:id',
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(employeeIdSchema, req.params.id);
+      const input = parse(employeeUpdateSchema, req.body);
+      const employee = await updateEmployee(tx, organizationId, userId, id, input);
+      return { body: { success: true, data: { employee } } };
+    })
+  );
+
+  return router;
+}
+
+export const employeesRouter = createEmployeesRouter();

@@ -1,9 +1,15 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import express, { RequestHandler } from 'express';
 import { EmployeeStatus, EmploymentType, PrismaClient, UserRole } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { withOrganizationContext } from '../lib/tenant';
 import { HttpError } from '../lib/httpError';
+import { errorHandler } from '../middleware/errorHandler';
+import { AuthenticatedRequest } from '../types/auth';
+import { createEmployeesRouter } from './employees.routes';
+import { createDepartmentsRouter } from './departments.routes';
 import {
   changeEmployeeStatus,
   createEmployee,
@@ -92,6 +98,54 @@ let deptA: string;
 let deptB: string;
 let deptC: string;
 let cEmployees: Array<CFixture & { id: string }>;
+let httpServer: http.Server;
+let baseUrl: string;
+
+const testUserByOrg: Record<string, string> = {
+  [orgA]: userA,
+  [orgB]: userB,
+  [orgC]: userC,
+};
+
+/**
+ * Replaces Keycloak authentication for the route-level tests by populating the
+ * same `req.auth` shape that `requireAuth` produces.
+ */
+const fakeAuth: RequestHandler = (req, res, next) => {
+  const organizationId = req.header('x-test-org') ?? '';
+  const userId = testUserByOrg[organizationId];
+
+  if (!userId) {
+    res.status(401).json({
+      success: false,
+      error: { code: 'NO_TOKEN', message: 'Test auth requires a known x-test-org' },
+    });
+    return;
+  }
+
+  const role = (req.header('x-test-role') ?? UserRole.HR_MANAGER) as UserRole;
+
+  (req as AuthenticatedRequest).auth = {
+    user: {
+      id: userId,
+      identityIssuer: 'test',
+      identitySubject: `subject-${userId}`,
+      email: `test-${userId}@example.com`,
+      role,
+      isActive: true,
+      organizationId,
+    },
+    organization: {
+      id: organizationId,
+      name: `Test Org ${organizationId.slice(0, 4)}`,
+      slug: `test-org-${organizationId.slice(0, 4)}`,
+      currency: 'USD',
+      timezone: 'UTC',
+    },
+  };
+
+  next();
+};
 
 const baseQuery: EmployeeListQuery = {
   page: 1,
@@ -117,6 +171,15 @@ const listC = (overrides: Partial<EmployeeListQuery> = {}) =>
   withOrganizationContext(orgC, (tx) =>
     listEmployees(tx, orgC, { ...baseQuery, ...overrides })
   );
+
+const testHeaders = (
+  organizationId: string,
+  role: UserRole = UserRole.HR_MANAGER
+) => ({
+  'content-type': 'application/json',
+  'x-test-org': organizationId,
+  'x-test-role': role,
+});
 
 async function expectHttpError(promise: Promise<unknown>, status: number, code: string) {
   await assert.rejects(promise, (error: unknown) => {
@@ -190,7 +253,7 @@ before(async () => {
   ).id;
 
   cEmployees = [];
-  for (const fixture of cFixtures) {
+  for (const [index, fixture] of cFixtures.entries()) {
     const created = await adminPrisma.employee.create({
       data: {
         organizationId: orgC,
@@ -204,16 +267,39 @@ before(async () => {
         joinedAt: new Date(`${fixture.joinedAt}T00:00:00.000Z`),
         baseSalary: fixture.baseSalary,
         departmentId: fixture.inDepartment ? deptC : null,
+        // Explicit timestamps keep the createdAt sort assertion deterministic.
+        createdAt: new Date(Date.UTC(2020, 0, index + 1)),
       },
     });
     cEmployees.push({ ...fixture, id: created.id });
   }
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/employees', createEmployeesRouter(fakeAuth));
+  app.use('/api/departments', createDepartmentsRouter(fakeAuth));
+  app.use(errorHandler);
+
+  await new Promise<void>((resolve) => {
+    httpServer = app.listen(0, () => {
+      const address = httpServer.address();
+      if (address && typeof address === 'object') {
+        baseUrl = `http://localhost:${address.port}`;
+      }
+      resolve();
+    });
+  });
 });
 
 after(async () => {
   if (!dbIntegration) {
     return;
   }
+
+  if (httpServer) {
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  }
+
   const tenantIds = [orgA, orgB, orgC];
   await adminPrisma.employee.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: tenantIds } } });
@@ -567,8 +653,108 @@ describeDb('Employee directory service', () => {
     );
   });
 
-  it('returns nothing without tenant context', async () => {
-    const rows = await prisma.employee.findMany({ where: { organizationId: orgA } });
+  it('returns nothing without tenant context even when rows exist', async () => {
+    const stored = await adminPrisma.employee.count({ where: { organizationId: orgC } });
+    assert.ok(stored >= 5, 'tenant C fixtures must exist for this check');
+
+    const rows = await prisma.employee.findMany({ where: { organizationId: orgC } });
     assert.equal(rows.length, 0);
+  });
+
+  it('creates an employee over HTTP with 201 and a Location header', async () => {
+    const response = await fetch(`${baseUrl}/api/employees`, {
+      method: 'POST',
+      headers: testHeaders(orgA),
+      body: JSON.stringify(input({ email: 'http-create@example.com' })),
+    });
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.success, true);
+    assert.equal(body.data.employee.email, 'http-create@example.com');
+    assert.match(body.data.employee.employeeNumber, /^PP-\d+$/);
+    assert.equal(
+      response.headers.get('location'),
+      `/api/employees/${body.data.employee.id}`
+    );
+  });
+
+  it('returns validation details over HTTP for an invalid payload', async () => {
+    const response = await fetch(`${baseUrl}/api/employees`, {
+      method: 'POST',
+      headers: testHeaders(orgA),
+      body: JSON.stringify({ email: 'not-an-email' }),
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(body.error.code, 'VALIDATION_ERROR');
+    assert.ok(Array.isArray(body.error.details));
+    assert.ok(body.error.details.length > 0);
+    assert.ok(
+      body.error.details.every(
+        (detail: { path?: unknown; message?: unknown }) =>
+          typeof detail.path === 'string' && typeof detail.message === 'string'
+      )
+    );
+  });
+
+  it('forbids roles outside the HR roles over HTTP', async () => {
+    const response = await fetch(`${baseUrl}/api/employees`, {
+      headers: testHeaders(orgA, UserRole.MANAGER),
+    });
+
+    assert.equal(response.status, 403);
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(body.error.code, 'INSUFFICIENT_PERMISSIONS');
+  });
+
+  it('hides another tenant employee over HTTP', async () => {
+    const created = await withOrganizationContext(orgA, (tx) =>
+      createEmployee(tx, orgA, userA, input({ email: 'http-cross-tenant@example.com' }))
+    );
+
+    const response = await fetch(`${baseUrl}/api/employees/${created.id}`, {
+      headers: testHeaders(orgB),
+    });
+
+    assert.equal(response.status, 404);
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(body.error.code, 'EMPLOYEE_NOT_FOUND');
+  });
+
+  it('lists employees and departments over HTTP with the expected envelopes', async () => {
+    const listResponse = await fetch(`${baseUrl}/api/employees?pageSize=2`, {
+      headers: testHeaders(orgC),
+    });
+    assert.equal(listResponse.status, 200);
+    const listBody = await listResponse.json();
+    assert.equal(listBody.success, true);
+    assert.equal(listBody.data.pagination.total, 5);
+    assert.equal(listBody.data.employees.length, 2);
+    assert.deepEqual(listBody.data.summary, {
+      total: 5,
+      active: 3,
+      onLeave: 1,
+      suspended: 0,
+      terminated: 1,
+    });
+
+    const departmentsResponse = await fetch(`${baseUrl}/api/departments`, {
+      headers: testHeaders(orgC),
+    });
+    assert.equal(departmentsResponse.status, 200);
+    const departmentsBody = await departmentsResponse.json();
+    assert.equal(departmentsBody.success, true);
+    assert.ok(Array.isArray(departmentsBody.data.departments));
+    assert.ok(
+      departmentsBody.data.departments.some(
+        (department: { id: string; code: string }) =>
+          department.id === deptC && department.code === 'OPS'
+      )
+    );
   });
 });

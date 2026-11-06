@@ -2950,3 +2950,11 @@ These reviewed changes supersede the snippets above:
 - The list summary total is derived from the grouped status counts instead of an extra query.
 - Prisma `P2003` is mapped to `400 INVALID_DEPARTMENT`.
 - DTO `employmentType` and `status` use the Prisma enum types.
+- `tenantRouteHandler` now receives `(req, tx)` and returns `{ status?, location?, body }`. The wrapper sends the response only after the transaction commits, so a rolled-back audit write can never produce a success response.
+- The employee and department routers are factories that accept an injectable auth middleware. Production uses `requireAuth`; the integration tests inject a fake auth middleware to exercise the mounted routes over real HTTP.
+- `changeEmployeeStatus` takes a per-employee advisory lock before reading, so concurrent transitions cannot record a stale audit `from`.
+- Create and update wrap only the write in the error-mapping `try` block; audit writes happen after it, so an audit failure is a genuine 500 and not a misclassified unique violation.
+- `updateEmployee` acquires the numbering lock only when an email is supplied.
+- The email pre-check compares case-insensitively.
+- The seed script resolves `.env` from the repository root and runs all upserts in one transaction.
+- Integration tests also cover the mounted routes over HTTP: `201` + `Location`, validation `details`, `403`, cross-tenant `404`, list summary, and the departments envelope.

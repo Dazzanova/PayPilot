@@ -4,7 +4,8 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+// Resolve relative to the repository root, not the caller's working directory.
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const DEPARTMENTS = [
   { name: 'Engineering', code: 'ENG', description: 'Software development, cloud infrastructure, and QA' },
@@ -32,18 +33,20 @@ async function main() {
       );
     }
 
-    for (const department of DEPARTMENTS) {
-      await prisma.department.upsert({
-        where: {
-          organizationId_code: {
-            organizationId: organization.id,
-            code: department.code,
+    await prisma.$transaction(async (tx) => {
+      for (const department of DEPARTMENTS) {
+        await tx.department.upsert({
+          where: {
+            organizationId_code: {
+              organizationId: organization.id,
+              code: department.code,
+            },
           },
-        },
-        update: { name: department.name, description: department.description },
-        create: { organizationId: organization.id, ...department },
-      });
-    }
+          update: { name: department.name, description: department.description },
+          create: { organizationId: organization.id, ...department },
+        });
+      }
+    });
 
     console.log(
       `Seeded ${DEPARTMENTS.length} departments for ${organization.name} (${organization.id}).`

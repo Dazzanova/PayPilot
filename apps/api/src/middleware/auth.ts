@@ -313,16 +313,25 @@ export function requireRole(...allowedRoles: UserRole[]) {
   };
 }
 
+export interface TenantRouteResponse {
+  status?: number;
+  location?: string;
+  body: unknown;
+}
+
 /**
  * Wraps a protected route handler in a single transaction with tenant context
  * set on that connection. All queries in the handler must use the provided tx.
+ *
+ * The handler returns the response instead of writing it so nothing is sent to
+ * the client until the transaction has committed. If the transaction rolls
+ * back, the request fails instead of reporting a success that was never saved.
  */
 export function tenantRouteHandler(
   handler: (
     req: AuthenticatedRequest,
-    res: Response,
     tx: Prisma.TransactionClient
-  ) => Promise<void>
+  ) => Promise<TenantRouteResponse>
 ) {
   return async (
     req: AuthenticatedRequest,
@@ -343,9 +352,15 @@ export function tenantRouteHandler(
     }
 
     try {
-      await withOrganizationContext(organizationId, async (tx) => {
-        await handler(req, res, tx);
-      });
+      const response = await withOrganizationContext(organizationId, (tx) =>
+        handler(req, tx)
+      );
+
+      if (response.location) {
+        res.location(response.location);
+      }
+
+      res.status(response.status ?? 200).json(response.body);
     } catch (error) {
       next(error);
     }

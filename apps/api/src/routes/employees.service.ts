@@ -12,13 +12,38 @@ const DEPARTMENT_INCLUDE = { department: true } as const;
 
 type Tx = Prisma.TransactionClient;
 
-async function acquireEmployeeLock(tx: Tx, organizationId: string): Promise<void> {
+async function acquireAdvisoryLock(
+  tx: Tx,
+  organizationId: string,
+  key: string
+): Promise<void> {
   await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(
       hashtext(${organizationId}::text),
-      hashtext('employee_number')
+      hashtext(${key}::text)
     )
   `;
+}
+
+/**
+ * Serializes employee-number allocation and email changes for one tenant.
+ * Create and update must share this lock so the email pre-check cannot be
+ * overtaken between the check and the write.
+ */
+async function acquireEmployeeLock(tx: Tx, organizationId: string): Promise<void> {
+  await acquireAdvisoryLock(tx, organizationId, 'employee_number');
+}
+
+/**
+ * Serializes status transitions for one employee so the audit `from` value is
+ * read from the same state that the update replaces.
+ */
+async function acquireEmployeeStatusLock(
+  tx: Tx,
+  organizationId: string,
+  employeeId: string
+): Promise<void> {
+  await acquireAdvisoryLock(tx, organizationId, `employee_status:${employeeId}`);
 }
 
 async function allocateEmployeeNumber(tx: Tx, organizationId: string): Promise<string> {
@@ -58,7 +83,7 @@ async function assertEmailAvailable(
   const duplicate = await tx.employee.findFirst({
     where: {
       organizationId,
-      email,
+      email: { equals: email, mode: 'insensitive' },
       ...(excludeEmployeeId ? { id: { not: excludeEmployeeId } } : {}),
     },
     select: { id: true },
@@ -106,22 +131,10 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
-function isUniqueViolation(error: unknown, target: string): boolean {
-  const normalize = (value: unknown) =>
-    String(value ?? '')
-      .toLowerCase()
-      .replace(/_/g, '');
-
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === 'P2002' &&
-    normalize(error.meta?.target).includes(normalize(target))
-  );
-}
-
 // Prisma on this PostgreSQL setup reports P2002 with meta.target = null, so the
-// targeted checks above cannot rely on the constraint name. Callers use this
-// fallback only after excluding the conflicts they can identify themselves.
+// constraint name is not usable for classification. Callers therefore
+// pre-check the conflict they can identify while holding the tenant lock and
+// treat any remaining P2002 as the other unique constraint.
 function isUniqueViolationError(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -248,8 +261,10 @@ export async function createEmployee(
   // detect the email conflict up front while the advisory lock is still held.
   await assertEmailAvailable(tx, organizationId, input.email);
 
+  let employee: EmployeeWithDepartment;
+
   try {
-    const employee = await tx.employee.create({
+    employee = await tx.employee.create({
       data: {
         organizationId,
         employeeNumber,
@@ -265,23 +280,15 @@ export async function createEmployee(
       },
       include: DEPARTMENT_INCLUDE,
     });
-
-    await writeAudit(tx, organizationId, actorId, 'employee.created', employee.id, {
-      employeeNumber: employee.employeeNumber,
-    });
-
-    return toEmployeeDto(employee);
   } catch (error) {
-    if (isUniqueViolation(error, 'email')) {
-      throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
-    }
-    if (isUniqueViolation(error, 'employee_number')) {
-      throw new HttpError(409, 'DUPLICATE_EMPLOYEE_NUMBER', 'Could not allocate a unique employee number');
-    }
-    // The email pre-check ran while the advisory lock was held, so an
-    // unidentifiable P2002 here is an employee number collision.
+    // The email pre-check ran while the tenant advisory lock was held, so an
+    // unidentifiable P2002 here can only be an employee-number collision.
     if (isUniqueViolationError(error)) {
-      throw new HttpError(409, 'DUPLICATE_EMPLOYEE_NUMBER', 'Could not allocate a unique employee number');
+      throw new HttpError(
+        409,
+        'DUPLICATE_EMPLOYEE_NUMBER',
+        'Could not allocate a unique employee number'
+      );
     }
     if (isForeignKeyViolation(error)) {
       throw new HttpError(
@@ -292,6 +299,12 @@ export async function createEmployee(
     }
     throw error;
   }
+
+  await writeAudit(tx, organizationId, actorId, 'employee.created', employee.id, {
+    employeeNumber: employee.employeeNumber,
+  });
+
+  return toEmployeeDto(employee);
 }
 
 export async function updateEmployee(
@@ -301,7 +314,11 @@ export async function updateEmployee(
   employeeId: string,
   input: EmployeeUpdateInput
 ) {
-  await acquireEmployeeLock(tx, organizationId);
+  // Only email changes can collide with a concurrent create, so only those
+  // updates take the numbering lock.
+  if (input.email !== undefined) {
+    await acquireEmployeeLock(tx, organizationId);
+  }
 
   const existing = await requireEmployee(tx, organizationId, employeeId);
 
@@ -368,26 +385,23 @@ export async function updateEmployee(
     return toEmployeeDto(existing);
   }
 
+  let employee: EmployeeWithDepartment;
+
   try {
-    const employee = await tx.employee.update({
+    employee = await tx.employee.update({
       where: { id: employeeId, organizationId },
       data,
       include: DEPARTMENT_INCLUDE,
     });
-
-    await writeAudit(tx, organizationId, actorId, 'employee.updated', employee.id, {
-      changedFields,
-    });
-
-    return toEmployeeDto(employee);
   } catch (error) {
-    if (isUniqueViolation(error, 'email')) {
-      throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
-    }
     // Employee numbers never change on update, so an unidentifiable P2002
     // here is an email collision.
     if (isUniqueViolationError(error)) {
-      throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
+      throw new HttpError(
+        409,
+        'EMAIL_ALREADY_EXISTS',
+        'An employee with this email already exists'
+      );
     }
     if (isRecordNotFound(error)) {
       throw new HttpError(404, 'EMPLOYEE_NOT_FOUND', 'Employee not found');
@@ -401,6 +415,12 @@ export async function updateEmployee(
     }
     throw error;
   }
+
+  await writeAudit(tx, organizationId, actorId, 'employee.updated', employee.id, {
+    changedFields,
+  });
+
+  return toEmployeeDto(employee);
 }
 
 export async function changeEmployeeStatus(
@@ -410,6 +430,10 @@ export async function changeEmployeeStatus(
   employeeId: string,
   status: EmployeeWithDepartment['status']
 ) {
+  // Hold a per-employee lock so the audited `from` status matches the state
+  // that this update actually replaces.
+  await acquireEmployeeStatusLock(tx, organizationId, employeeId);
+
   const existing = await requireEmployee(tx, organizationId, employeeId);
 
   if (existing.status === status) {
