@@ -45,6 +45,26 @@ async function requireEmployee(
   return employee;
 }
 
+async function assertEmailAvailable(
+  tx: Tx,
+  organizationId: string,
+  email: string,
+  excludeEmployeeId?: string
+): Promise<void> {
+  const duplicate = await tx.employee.findFirst({
+    where: {
+      organizationId,
+      email,
+      ...(excludeEmployeeId ? { id: { not: excludeEmployeeId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (duplicate) {
+    throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
+  }
+}
+
 async function assertDepartment(
   tx: Tx,
   organizationId: string,
@@ -210,6 +230,10 @@ export async function createEmployee(
 
   const employeeNumber = await allocateEmployeeNumber(tx, organizationId);
 
+  // Prisma reports P2002 with meta.target = null on this PostgreSQL setup, so
+  // detect the email conflict up front while the advisory lock is still held.
+  await assertEmailAvailable(tx, organizationId, input.email);
+
   try {
     const employee = await tx.employee.create({
       data: {
@@ -259,6 +283,10 @@ export async function updateEmployee(
   input: EmployeeUpdateInput
 ) {
   const existing = await requireEmployee(tx, organizationId, employeeId);
+
+  if (input.email !== undefined && input.email !== existing.email) {
+    await assertEmailAvailable(tx, organizationId, input.email, employeeId);
+  }
 
   if (input.departmentId !== undefined) {
     await assertDepartment(tx, organizationId, input.departmentId);
