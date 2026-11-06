@@ -647,7 +647,7 @@ const DEPARTMENT_INCLUDE = { department: true } as const;
 type Tx = Prisma.TransactionClient;
 
 async function allocateEmployeeNumber(tx: Tx, organizationId: string): Promise<string> {
-  await tx.$queryRaw`
+  await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(
       hashtext(${organizationId}::text),
       hashtext('employee_number')
@@ -1511,7 +1511,7 @@ Common causes:
 
 - `P2002` target text differs by Prisma version → log `error.meta?.target` and match on the index name.
 - `Decimal.equals` is unavailable → compare `baseSalary.toString()` values instead.
-- Concurrency test flakiness → confirm `pg_advisory_xact_lock` is called with `$queryRaw` inside the same transaction as the insert. Do not add an in-transaction retry after a unique violation; PostgreSQL aborts that transaction.
+- Concurrency test flakiness → confirm `pg_advisory_xact_lock` is called with `$executeRaw` inside the same transaction as the insert. Use `$executeRaw`, not `$queryRaw`: the function returns PostgreSQL `void`, which Prisma cannot deserialize. Do not add an in-transaction retry after a unique violation; PostgreSQL aborts that transaction.
 
 Do not weaken assertions to make the tests pass.
 
@@ -2935,3 +2935,18 @@ Summarize:
 - [ ] **Step 4: Hand off for review**
 
 Use the `requesting-code-review` skill if available, or open a PR against `main` with the verification results. Do not merge without review.
+
+---
+
+## Execution notes (applied during implementation)
+
+These reviewed changes supersede the snippets above:
+
+- The advisory lock uses `$executeRaw`. `$queryRaw` cannot deserialize the `void` returned by `pg_advisory_xact_lock`.
+- `updateEmployee` and `changeEmployeeStatus` use `where: { id, organizationId }` and map `P2025` to `404 EMPLOYEE_NOT_FOUND`.
+- Pagination orders by the requested field plus `{ id: 'asc' }` for deterministic pages.
+- `search` escapes `\`, `%`, and `_` before `contains`.
+- `page` is clamped to `1..10000`.
+- The list summary total is derived from the grouped status counts instead of an extra query.
+- Prisma `P2003` is mapped to `400 INVALID_DEPARTMENT`.
+- DTO `employmentType` and `status` use the Prisma enum types.
