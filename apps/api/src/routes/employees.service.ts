@@ -12,13 +12,17 @@ const DEPARTMENT_INCLUDE = { department: true } as const;
 
 type Tx = Prisma.TransactionClient;
 
-async function allocateEmployeeNumber(tx: Tx, organizationId: string): Promise<string> {
+async function acquireEmployeeLock(tx: Tx, organizationId: string): Promise<void> {
   await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(
       hashtext(${organizationId}::text),
       hashtext('employee_number')
     )
   `;
+}
+
+async function allocateEmployeeNumber(tx: Tx, organizationId: string): Promise<string> {
+  await acquireEmployeeLock(tx, organizationId);
 
   const existing = await tx.employee.findMany({
     where: { organizationId },
@@ -297,6 +301,8 @@ export async function updateEmployee(
   employeeId: string,
   input: EmployeeUpdateInput
 ) {
+  await acquireEmployeeLock(tx, organizationId);
+
   const existing = await requireEmployee(tx, organizationId, employeeId);
 
   if (input.email !== undefined && input.email !== existing.email) {

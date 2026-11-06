@@ -261,25 +261,48 @@ describeDb('Employee directory service', () => {
     assert.equal(new Set(numbers).size, numbers.length);
   });
 
-  it('lists, searches, filters, paginates, and summarizes', async () => {
-    const result = await withOrganizationContext(orgA, (tx) =>
-      listEmployees(tx, orgA, { ...baseQuery, search: 'second' })
+  it('serializes a create and an update competing for the same email', async () => {
+    const employeeB = await withOrganizationContext(orgA, (tx) =>
+      createEmployee(tx, orgA, userA, input({ email: 'race-b@example.com' }))
     );
-    assert.equal(result.employees.length, 1);
-    assert.equal(result.employees[0].email, 'second@example.com');
-    assert.equal(result.pagination.total, 1);
-    assert.ok(result.summary.total >= 6);
 
-    const byDepartment = await withOrganizationContext(orgA, (tx) =>
-      listEmployees(tx, orgA, { ...baseQuery, departmentId: deptA })
-    );
-    assert.equal(byDepartment.pagination.total, 0);
+    const target = 'race-target@example.com';
+    const [updateResult, createResult] = await Promise.allSettled([
+      withOrganizationContext(orgA, (tx) =>
+        updateEmployee(tx, orgA, userA, employeeB.id, { email: target })
+      ),
+      withOrganizationContext(orgA, (tx) =>
+        createEmployee(tx, orgA, userA, input({ email: target }))
+      ),
+    ]);
 
-    const paged = await withOrganizationContext(orgA, (tx) =>
-      listEmployees(tx, orgA, { ...baseQuery, pageSize: 2, page: 2 })
+    const results = [updateResult, createResult];
+    const fulfilled = results.filter((result) => result.status === 'fulfilled');
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
     );
-    assert.equal(paged.employees.length, 2);
-    assert.equal(paged.pagination.page, 2);
+
+    assert.equal(fulfilled.length, 1);
+    assert.equal(rejected.length, 1);
+
+    const error = rejected[0].reason;
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, 'EMAIL_ALREADY_EXISTS');
+
+    // Exactly one row owns the contended email.
+    const stored = await adminPrisma.employee.findMany({
+      where: { organizationId: orgA, email: target },
+      select: { id: true },
+    });
+    assert.equal(stored.length, 1);
+
+    if (updateResult.status === 'fulfilled') {
+      assert.equal(stored[0].id, employeeB.id);
+    } else {
+      assert.equal(createResult.status, 'fulfilled');
+      assert.equal(stored[0].id, createResult.value.id);
+    }
   });
 
   it('gets a fixture employee by id within the tenant', async () => {
@@ -328,6 +351,13 @@ describeDb('Employee directory service', () => {
 
     assert.equal(result.pagination.total, 1);
     assert.equal(result.employees[0].id, cEmployees[3].id);
+    assert.deepEqual(result.summary, {
+      total: 5,
+      active: 3,
+      onLeave: 1,
+      suspended: 0,
+      terminated: 1,
+    });
   });
 
   it('paginates deterministically and sorts by joinedAt', async () => {
@@ -342,6 +372,12 @@ describeDb('Employee directory service', () => {
 
     const latest = await listC({ sort: 'joinedAt', order: 'desc', pageSize: 2, page: 1 });
     assert.equal(latest.employees[0].id, cEmployees[4].id);
+
+    const byNumber = await listC({ sort: 'employeeNumber', order: 'asc', pageSize: 2, page: 1 });
+    assert.equal(byNumber.employees[0].id, cEmployees[0].id);
+
+    const byCreatedAt = await listC({ sort: 'createdAt', order: 'asc', pageSize: 2, page: 1 });
+    assert.equal(byCreatedAt.employees[0].id, cEmployees[0].id);
   });
 
   it('summarizes the fixture tenant exactly', async () => {
