@@ -65,10 +65,15 @@ async function assertDepartment(
 }
 
 function isUniqueViolation(error: unknown, target: string): boolean {
+  const normalize = (value: unknown) =>
+    String(value ?? '')
+      .toLowerCase()
+      .replace(/_/g, '');
+
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === 'P2002' &&
-    String(error.meta?.target ?? '').includes(target)
+    normalize(error.meta?.target).includes(normalize(target))
   );
 }
 

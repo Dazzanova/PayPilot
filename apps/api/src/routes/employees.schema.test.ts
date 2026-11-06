@@ -58,6 +58,31 @@ describe('employeeCreateSchema', () => {
     assert.equal(employeeCreateSchema.safeParse({ ...valid, firstName: '  ' }).success, false);
     assert.equal(employeeCreateSchema.safeParse({ ...valid, email: 'nope' }).success, false);
   });
+
+  it('rejects an unknown employment type', () => {
+    assert.equal(
+      employeeCreateSchema.safeParse({ ...valid, employmentType: 'FREELANCE' }).success,
+      false
+    );
+  });
+
+  it('rejects phone numbers that are too long or contain unsupported characters', () => {
+    assert.equal(
+      employeeCreateSchema.safeParse({ ...valid, phone: '1'.repeat(31) }).success,
+      false
+    );
+    assert.equal(
+      employeeCreateSchema.safeParse({ ...valid, phone: 'abc' }).success,
+      false
+    );
+  });
+
+  it('rejects a joinedAt before the minimum date', () => {
+    assert.equal(
+      employeeCreateSchema.safeParse({ ...valid, joinedAt: '1899-12-31' }).success,
+      false
+    );
+  });
 });
 
 describe('employeeUpdateSchema', () => {
@@ -76,6 +101,10 @@ describe('employeeStatusSchema', () => {
     assert.deepEqual(employeeStatusSchema.parse({ status: 'ON_LEAVE' }), {
       status: EmployeeStatus.ON_LEAVE,
     });
+  });
+
+  it('rejects an unknown status', () => {
+    assert.equal(employeeStatusSchema.safeParse({ status: 'RETIRED' }).success, false);
   });
 });
 
@@ -103,6 +132,13 @@ describe('employeeListQuerySchema', () => {
     assert.equal(employeeListQuerySchema.parse({ search: '  alex  ' }).search, 'alex');
     assert.equal(
       employeeListQuerySchema.safeParse({ departmentId: 'not-a-uuid' }).success,
+      false
+    );
+  });
+
+  it('rejects an overlong search term', () => {
+    assert.equal(
+      employeeListQuerySchema.safeParse({ search: 'a'.repeat(101) }).success,
       false
     );
   });
