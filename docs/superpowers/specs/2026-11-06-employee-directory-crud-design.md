@@ -85,8 +85,9 @@ and add one. Non-matching values are ignored. The advisory lock serializes
 concurrent creates per tenant, and the lock is released when the transaction ends.
 
 If the insert still violates the unique constraint (for example, data written
-outside this path), the API retries once with a recomputed number and then returns
-`409 DUPLICATE_EMPLOYEE_NUMBER`.
+outside this path), the API returns `409 DUPLICATE_EMPLOYEE_NUMBER`. It does not
+retry inside the same transaction, because PostgreSQL marks the transaction as
+aborted after a constraint violation; a retry would require a fresh transaction.
 
 ## 6. API contract
 
@@ -401,7 +402,8 @@ client, then exercise the runtime path:
 - `departmentId` from org B → `400 INVALID_DEPARTMENT`.
 - Cross-tenant `GET`/`PATCH`/status by id → `404`.
 - No tenant context → no rows / rejected writes.
-- `MANAGER` and `EMPLOYEE` roles → `403` at the middleware layer.
+- `MANAGER` and `EMPLOYEE` roles → `403` at the middleware layer (covered by the
+  existing `requireRole` unit tests; the mounted routes are verified manually).
 - Audit rows written with the expected action names and no salary values.
 - List response never includes another tenant's employees.
 
