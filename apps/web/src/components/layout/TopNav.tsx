@@ -1,14 +1,15 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
   Search,
   Bell,
   Building,
   CheckCircle2,
+  LogOut,
+  User,
 } from 'lucide-react';
-import { mockCurrentUser } from '../../data/mockData';
-import { Badge } from '../ui/Badge';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface TopNavProps {
   onOpenMobileMenu: () => void;
@@ -26,9 +27,35 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 
 export const TopNav: React.FC<TopNavProps> = ({ onOpenMobileMenu }) => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, organization, signOut } = useAuth();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   const currentInfo = pageTitles[location.pathname] || {
     title: 'PayPilot',
     subtitle: 'Enterprise HRMS & Payroll',
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  const getUserInitials = () => {
+    if (!user?.email) return '??';
+    const parts = user.email.split('@')[0].split('.');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return user.email.slice(0, 2).toUpperCase();
+  };
+
+  const formatRole = (role: string) => {
+    return role.replace(/_/g, ' ');
   };
 
   return (
@@ -76,14 +103,15 @@ export const TopNav: React.FC<TopNavProps> = ({ onOpenMobileMenu }) => {
         <div className="hidden sm:flex items-center gap-2 pl-3 pr-2 py-1 bg-slate-50 border border-slate-200 rounded-lg">
           <Building className="w-3.5 h-3.5 text-brand-600" />
           <div className="text-left text-xs">
-            <span className="font-semibold text-slate-800">{mockCurrentUser.organization.name}</span>
-            <span className="text-[10px] text-slate-400 block leading-none mt-0.5">
-              Tenant ID: {mockCurrentUser.organization.id}
+            <span className="font-semibold text-slate-800">
+              {organization?.name || 'Loading...'}
             </span>
+            {organization && (
+              <span className="text-[10px] text-slate-400 block leading-none mt-0.5">
+                {organization.slug}
+              </span>
+            )}
           </div>
-          <Badge variant="brand" size="sm" className="ml-1">
-            Demo
-          </Badge>
         </div>
 
         {/* Notifications */}
@@ -98,28 +126,91 @@ export const TopNav: React.FC<TopNavProps> = ({ onOpenMobileMenu }) => {
           </button>
         </div>
 
-        {/* User profile dropdown affordance */}
-        <div className="flex items-center gap-2.5 pl-2 sm:pl-3 border-l border-slate-200">
-          <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs overflow-hidden border border-brand-200">
-            {mockCurrentUser.avatarUrl ? (
-              <img
-                src={mockCurrentUser.avatarUrl}
-                alt={mockCurrentUser.name}
-                className="w-full h-full object-cover"
+        {/* User profile dropdown */}
+        <div className="relative flex items-center gap-2.5 pl-2 sm:pl-3 border-l border-slate-200">
+          <button
+            type="button"
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center gap-2.5 hover:bg-slate-50 rounded-lg px-2 py-1.5 transition-colors"
+            aria-label="User menu"
+          >
+            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs overflow-hidden border border-brand-200">
+              {getUserInitials()}
+            </div>
+            <div className="hidden xl:block text-left text-xs leading-snug">
+              <div className="font-semibold text-slate-900 flex items-center gap-1">
+                {user?.email?.split('@')[0] || 'User'}
+                {user?.isActive && (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                )}
+              </div>
+              <div className="text-slate-400 text-[11px]">
+                {user?.role ? formatRole(user.role) : 'Loading...'}
+              </div>
+            </div>
+          </button>
+
+          {/* Dropdown menu */}
+          {showUserMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowUserMenu(false)}
               />
-            ) : (
-              mockCurrentUser.name.slice(0, 2).toUpperCase()
-            )}
-          </div>
-          <div className="hidden xl:block text-left text-xs leading-snug">
-            <div className="font-semibold text-slate-900 flex items-center gap-1">
-              {mockCurrentUser.name}
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-            </div>
-            <div className="text-slate-400 text-[11px]">
-              {mockCurrentUser.role.replace(/_/g, ' ')}
-            </div>
-          </div>
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
+                {/* User info */}
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-sm border border-brand-200">
+                      {getUserInitials()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-slate-900 truncate">
+                        {user?.email || 'User'}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {user?.role ? formatRole(user.role) : ''}
+                      </div>
+                    </div>
+                  </div>
+                  {organization && (
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                      <div className="text-xs text-slate-500">Organization</div>
+                      <div className="text-sm font-medium text-slate-900">
+                        {organization.name}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Menu items */}
+                <div className="py-1">
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      navigate('/settings');
+                    }}
+                  >
+                    <User className="w-4 h-4 text-slate-400" />
+                    Profile Settings
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      handleSignOut();
+                    }}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </header>

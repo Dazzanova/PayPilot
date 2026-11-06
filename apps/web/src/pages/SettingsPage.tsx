@@ -159,10 +159,10 @@ export const SettingsPage: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex items-center gap-2 text-slate-700 font-semibold mb-1">
                   <Database className="w-4 h-4 text-brand-600" />
-                  <span>Supabase PostgreSQL</span>
+                  <span>PostgreSQL with Keycloak</span>
                 </div>
                 <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Configured via Prisma ORM with connection pooling (<code className="font-mono text-[10px] bg-slate-200/60 px-1 py-0.5 rounded">DATABASE_URL</code>) and direct session migration support (<code className="font-mono text-[10px] bg-slate-200/60 px-1 py-0.5 rounded">DIRECT_URL</code>).
+                  Configured via Prisma ORM. The runtime role uses <code className="font-mono text-[10px] bg-slate-200/60 px-1 py-0.5 rounded">DATABASE_URL</code>; migrations use the separate <code className="font-mono text-[10px] bg-slate-200/60 px-1 py-0.5 rounded">DIRECT_URL</code> role.
                 </p>
               </div>
 
@@ -172,7 +172,7 @@ export const SettingsPage: React.FC = () => {
                   <span>Tenant Isolation Policy</span>
                 </div>
                 <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Foreign key scoping enforced on all 9 relational entities. Cross-tenant queries are prevented at schema level.
+                  PostgreSQL Row-Level Security is enforced on all tenant-owned tables. Queries run through a transaction-scoped organization context.
                 </p>
               </div>
 
