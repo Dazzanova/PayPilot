@@ -77,7 +77,11 @@ export const employeeStatusSchema = z
 
 export const employeeListQuerySchema = z
   .object({
-    page: z.coerce.number().int().catch(1).transform((value) => Math.max(1, value)),
+    page: z.coerce
+      .number()
+      .int()
+      .catch(1)
+      .transform((value) => Math.min(10_000, Math.max(1, value))),
     pageSize: z.coerce
       .number()
       .int()

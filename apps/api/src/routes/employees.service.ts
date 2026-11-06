@@ -13,7 +13,7 @@ const DEPARTMENT_INCLUDE = { department: true } as const;
 type Tx = Prisma.TransactionClient;
 
 async function allocateEmployeeNumber(tx: Tx, organizationId: string): Promise<string> {
-  await tx.$queryRaw`
+  await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(
       hashtext(${organizationId}::text),
       hashtext('employee_number')
@@ -64,6 +64,24 @@ async function assertDepartment(
   }
 }
 
+function isRecordNotFound(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2025'
+  );
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2003'
+  );
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
 function isUniqueViolation(error: unknown, target: string): boolean {
   const normalize = (value: unknown) =>
     String(value ?? '')
@@ -107,7 +125,7 @@ export interface EmployeeListResult {
     suspended: number;
     terminated: number;
   };
-  sort: { field: string; order: string };
+  sort: { field: EmployeeListQuery['sort']; order: EmployeeListQuery['order'] };
 }
 
 export async function listEmployees(
@@ -117,17 +135,19 @@ export async function listEmployees(
 ): Promise<EmployeeListResult> {
   const where: Prisma.EmployeeWhereInput = { organizationId };
 
-  const orderBy: Prisma.EmployeeOrderByWithRelationInput = {
-    [query.sort]: query.order,
-  };
+  const orderBy: Prisma.EmployeeOrderByWithRelationInput[] = [
+    { [query.sort]: query.order },
+    { id: 'asc' },
+  ];
 
   if (query.search) {
+    const search = escapeLikePattern(query.search);
     where.OR = [
-      { firstName: { contains: query.search, mode: 'insensitive' } },
-      { lastName: { contains: query.search, mode: 'insensitive' } },
-      { email: { contains: query.search, mode: 'insensitive' } },
-      { employeeNumber: { contains: query.search, mode: 'insensitive' } },
-      { jobTitle: { contains: query.search, mode: 'insensitive' } },
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { employeeNumber: { contains: search, mode: 'insensitive' } },
+      { jobTitle: { contains: search, mode: 'insensitive' } },
     ];
   }
   if (query.departmentId) {
@@ -137,7 +157,7 @@ export async function listEmployees(
     where.status = query.status;
   }
 
-  const [total, employees, grouped, summaryTotal] = await Promise.all([
+  const [total, employees, grouped] = await Promise.all([
     tx.employee.count({ where }),
     tx.employee.findMany({
       where,
@@ -151,10 +171,10 @@ export async function listEmployees(
       where: { organizationId },
       _count: { _all: true },
     }),
-    tx.employee.count({ where: { organizationId } }),
   ]);
 
   const counts = new Map(grouped.map((row) => [row.status, row._count._all]));
+  const summaryTotal = grouped.reduce((sum, row) => sum + row._count._all, 0);
 
   return {
     employees: employees.map(toEmployeeDto),
@@ -219,6 +239,13 @@ export async function createEmployee(
     }
     if (isUniqueViolation(error, 'employee_number')) {
       throw new HttpError(409, 'DUPLICATE_EMPLOYEE_NUMBER', 'Could not allocate a unique employee number');
+    }
+    if (isForeignKeyViolation(error)) {
+      throw new HttpError(
+        400,
+        'INVALID_DEPARTMENT',
+        'Department does not exist in this organization'
+      );
     }
     throw error;
   }
@@ -294,7 +321,7 @@ export async function updateEmployee(
 
   try {
     const employee = await tx.employee.update({
-      where: { id: employeeId },
+      where: { id: employeeId, organizationId },
       data,
       include: DEPARTMENT_INCLUDE,
     });
@@ -307,6 +334,16 @@ export async function updateEmployee(
   } catch (error) {
     if (isUniqueViolation(error, 'email')) {
       throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
+    }
+    if (isRecordNotFound(error)) {
+      throw new HttpError(404, 'EMPLOYEE_NOT_FOUND', 'Employee not found');
+    }
+    if (isForeignKeyViolation(error)) {
+      throw new HttpError(
+        400,
+        'INVALID_DEPARTMENT',
+        'Department does not exist in this organization'
+      );
     }
     throw error;
   }
@@ -325,11 +362,20 @@ export async function changeEmployeeStatus(
     return toEmployeeDto(existing);
   }
 
-  const employee = await tx.employee.update({
-    where: { id: employeeId },
-    data: { status },
-    include: DEPARTMENT_INCLUDE,
-  });
+  let employee: EmployeeWithDepartment;
+
+  try {
+    employee = await tx.employee.update({
+      where: { id: employeeId, organizationId },
+      data: { status },
+      include: DEPARTMENT_INCLUDE,
+    });
+  } catch (error) {
+    if (isRecordNotFound(error)) {
+      throw new HttpError(404, 'EMPLOYEE_NOT_FOUND', 'Employee not found');
+    }
+    throw error;
+  }
 
   await writeAudit(tx, organizationId, actorId, 'employee.status_changed', employee.id, {
     from: existing.status,

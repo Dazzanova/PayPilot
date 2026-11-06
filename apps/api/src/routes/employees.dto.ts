@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { EmployeeStatus, EmploymentType, Prisma } from '@prisma/client';
 
 export type EmployeeWithDepartment = Prisma.EmployeeGetPayload<{
   include: { department: true };
@@ -12,8 +12,8 @@ export interface EmployeeDto {
   email: string;
   phone: string | null;
   jobTitle: string;
-  employmentType: string;
-  status: string;
+  employmentType: EmploymentType;
+  status: EmployeeStatus;
   joinedAt: string;
   baseSalary: string;
   departmentId: string | null;

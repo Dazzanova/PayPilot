@@ -25,7 +25,13 @@ describe('employeeCreateSchema', () => {
   it('normalizes email and phone', () => {
     const parsed = employeeCreateSchema.parse(valid);
     assert.equal(parsed.email, 'alex.mercer@example.com');
+    assert.equal(parsed.phone, '+1 (555) 234-5678');
     assert.equal(parsed.baseSalary, '145000.00');
+  });
+
+  it('trims phone input', () => {
+    const parsed = employeeCreateSchema.parse({ ...valid, phone: '  +1 (555) 234-5678  ' });
+    assert.equal(parsed.phone, '+1 (555) 234-5678');
   });
 
   it('turns an empty phone into null', () => {
@@ -51,6 +57,14 @@ describe('employeeCreateSchema', () => {
   it('rejects zero, negative, and over-precise salaries', () => {
     for (const baseSalary of ['0', '-10', '1.005', '10000000000']) {
       assert.equal(employeeCreateSchema.safeParse({ ...valid, baseSalary }).success, false);
+    }
+  });
+
+  it('accepts the salary boundaries', () => {
+    for (const baseSalary of ['0.01', '9999999999.99']) {
+      const parsed = employeeCreateSchema.safeParse({ ...valid, baseSalary });
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.success && parsed.data.baseSalary, baseSalary);
     }
   });
 
@@ -93,6 +107,16 @@ describe('employeeUpdateSchema', () => {
   it('rejects an empty object and status changes', () => {
     assert.equal(employeeUpdateSchema.safeParse({}).success, false);
     assert.equal(employeeUpdateSchema.safeParse({ status: EmployeeStatus.ACTIVE }).success, false);
+  });
+
+  it('rejects server-managed and tenant fields', () => {
+    for (const value of [
+      { employeeNumber: 'PP-1001' },
+      { userId: 'u1' },
+      { organizationId: 'o1' },
+    ]) {
+      assert.equal(employeeUpdateSchema.safeParse(value).success, false);
+    }
   });
 });
 
@@ -178,5 +202,30 @@ describe('toEmployeeDto', () => {
     assert.equal(dto.baseSalary, '145000.00');
     assert.equal(dto.departmentName, 'Engineering');
     assert.equal(dto.createdAt, '2026-01-01T10:00:00.000Z');
+  });
+
+  it('maps a missing department to a null departmentName', () => {
+    const dto = toEmployeeDto({
+      id: 'e1',
+      organizationId: 'o1',
+      departmentId: null,
+      userId: null,
+      employeeNumber: 'PP-1001',
+      firstName: 'Alex',
+      lastName: 'Mercer',
+      email: 'alex@example.com',
+      phone: null,
+      jobTitle: 'VP of Engineering',
+      employmentType: EmploymentType.FULL_TIME,
+      status: EmployeeStatus.ACTIVE,
+      joinedAt: new Date('2026-01-15T00:00:00.000Z'),
+      baseSalary: new Prisma.Decimal('145000'),
+      createdAt: new Date('2026-01-01T10:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T10:00:00.000Z'),
+      department: null,
+    });
+
+    assert.equal(dto.departmentId, null);
+    assert.equal(dto.departmentName, null);
   });
 });
