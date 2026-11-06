@@ -203,7 +203,7 @@ export const EmployeesPage: React.FC = () => {
             </div>
             <h3 className="text-base font-bold text-slate-900">Employee Creation (Demo View)</h3>
             <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              In this initial architecture milestone, CRUD mutations are intentionally scoped to read-only mock data. Full employee onboarding with validation schemas and Supabase persistence will be activated in the next milestone.
+              In this initial architecture milestone, CRUD mutations are intentionally scoped to read-only mock data. Full employee onboarding with validation schemas and database persistence will be activated in the next milestone.
             </p>
             <div className="mt-5 flex justify-end">
               <Button variant="primary" size="sm" onClick={() => setShowDemoModal(false)}>
