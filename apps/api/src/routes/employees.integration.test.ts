@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { EmployeeStatus, EmploymentType, PrismaClient, UserRole } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { withOrganizationContext } from '../lib/tenant';
 import { HttpError } from '../lib/httpError';
@@ -17,15 +17,81 @@ const dbIntegration = process.env.RUN_DB_INTEGRATION === '1';
 const describeDb = dbIntegration ? describe : describe.skip;
 
 // Dedicated fixtures: auth.integration.test.ts runs concurrently and owns the
-// 3333/4444 organizations, so sharing them would race across test processes.
+// 3333 organization, so sharing it would race across test processes.
 const orgA = '55555555-5555-4555-8555-555555555555';
 const orgB = '66666666-6666-4666-8666-666666666666';
+const orgC = '77777777-7777-4777-8777-777777777777';
 const userA = '55555555-5555-4555-8555-555555555501';
 const userB = '66666666-6666-4666-8666-666666666601';
+const userC = '77777777-7777-4777-8777-777777777701';
+
+// Tenant C owns a fully controlled fixture set so list, summary, search, and
+// sort assertions never depend on rows created by other tests.
+const cFixtures = [
+  {
+    employeeNumber: 'PP-2001',
+    firstName: 'Quinn',
+    lastName: 'Bennett',
+    email: 'quinn.bennett@example.com',
+    jobTitle: 'Quality Engineer',
+    joinedAt: '2021-01-10',
+    baseSalary: '91000.00',
+    status: EmployeeStatus.ACTIVE,
+    inDepartment: true,
+  },
+  {
+    employeeNumber: 'PP-2002',
+    firstName: 'Riley',
+    lastName: 'Chen',
+    email: 'riley.chen@example.com',
+    jobTitle: 'Data Analyst',
+    joinedAt: '2022-02-20',
+    baseSalary: '92000.00',
+    status: EmployeeStatus.ACTIVE,
+    inDepartment: true,
+  },
+  {
+    employeeNumber: 'PP-2003',
+    firstName: 'Sage',
+    lastName: 'Dawson',
+    email: 'sage.dawson@example.com',
+    jobTitle: 'Payroll Specialist',
+    joinedAt: '2023-03-30',
+    baseSalary: '93000.00',
+    status: EmployeeStatus.ON_LEAVE,
+    inDepartment: false,
+  },
+  {
+    employeeNumber: 'PP-2004',
+    firstName: 'Tatum',
+    lastName: 'Ellis',
+    email: 'tatum.ellis@example.com',
+    jobTitle: 'HR Coordinator',
+    joinedAt: '2024-04-15',
+    baseSalary: '94000.00',
+    status: EmployeeStatus.TERMINATED,
+    inDepartment: false,
+  },
+  {
+    employeeNumber: 'PP-2005',
+    firstName: 'Umber',
+    lastName: 'Frost',
+    email: 'umber.frost@example.com',
+    jobTitle: 'Office Manager',
+    joinedAt: '2025-05-25',
+    baseSalary: '95000.00',
+    status: EmployeeStatus.ACTIVE,
+    inDepartment: false,
+  },
+] as const;
+
+type CFixture = (typeof cFixtures)[number];
 
 let adminPrisma: PrismaClient;
 let deptA: string;
 let deptB: string;
+let deptC: string;
+let cEmployees: Array<CFixture & { id: string }>;
 
 const baseQuery: EmployeeListQuery = {
   page: 1,
@@ -46,6 +112,11 @@ const input = (overrides: Record<string, unknown> = {}) => ({
   departmentId: null,
   ...overrides,
 });
+
+const listC = (overrides: Partial<EmployeeListQuery> = {}) =>
+  withOrganizationContext(orgC, (tx) =>
+    listEmployees(tx, orgC, { ...baseQuery, ...overrides })
+  );
 
 async function expectHttpError(promise: Promise<unknown>, status: number, code: string) {
   await assert.rejects(promise, (error: unknown) => {
@@ -69,6 +140,7 @@ before(async () => {
   for (const org of [
     { id: orgA, name: 'Employee Org A', slug: 'employee-org-a' },
     { id: orgB, name: 'Employee Org B', slug: 'employee-org-b' },
+    { id: orgC, name: 'Employee Org C', slug: 'employee-org-c' },
   ]) {
     await adminPrisma.organization.upsert({
       where: { id: org.id },
@@ -80,6 +152,7 @@ before(async () => {
   for (const [id, organizationId, email] of [
     [userA, orgA, 'hr-a@example.com'],
     [userB, orgB, 'hr-b@example.com'],
+    [userC, orgC, 'hr-c@example.com'],
   ]) {
     await adminPrisma.user.upsert({
       where: { id },
@@ -95,9 +168,10 @@ before(async () => {
     });
   }
 
-  await adminPrisma.employee.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.department.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
+  const tenantIds = [orgA, orgB, orgC];
+  await adminPrisma.employee.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.department.deleteMany({ where: { organizationId: { in: tenantIds } } });
 
   deptA = (
     await adminPrisma.department.create({
@@ -109,17 +183,43 @@ before(async () => {
       data: { organizationId: orgB, name: 'Finance', code: 'FIN' },
     })
   ).id;
+  deptC = (
+    await adminPrisma.department.create({
+      data: { organizationId: orgC, name: 'Operations', code: 'OPS' },
+    })
+  ).id;
+
+  cEmployees = [];
+  for (const fixture of cFixtures) {
+    const created = await adminPrisma.employee.create({
+      data: {
+        organizationId: orgC,
+        employeeNumber: fixture.employeeNumber,
+        firstName: fixture.firstName,
+        lastName: fixture.lastName,
+        email: fixture.email,
+        jobTitle: fixture.jobTitle,
+        employmentType: EmploymentType.FULL_TIME,
+        status: fixture.status,
+        joinedAt: new Date(`${fixture.joinedAt}T00:00:00.000Z`),
+        baseSalary: fixture.baseSalary,
+        departmentId: fixture.inDepartment ? deptC : null,
+      },
+    });
+    cEmployees.push({ ...fixture, id: created.id });
+  }
 });
 
 after(async () => {
   if (!dbIntegration) {
     return;
   }
-  await adminPrisma.employee.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.department.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.user.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-  await adminPrisma.organization.deleteMany({ where: { id: { in: [orgA, orgB] } } });
+  const tenantIds = [orgA, orgB, orgC];
+  await adminPrisma.employee.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.department.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.user.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.organization.deleteMany({ where: { id: { in: tenantIds } } });
   await adminPrisma.$disconnect();
   await prisma.$disconnect();
 });
@@ -180,6 +280,155 @@ describeDb('Employee directory service', () => {
     );
     assert.equal(paged.employees.length, 2);
     assert.equal(paged.pagination.page, 2);
+  });
+
+  it('gets a fixture employee by id within the tenant', async () => {
+    const expected = cEmployees[0];
+    const employee = await withOrganizationContext(orgC, (tx) =>
+      getEmployee(tx, orgC, expected.id)
+    );
+
+    assert.equal(employee.id, expected.id);
+    assert.equal(employee.email, expected.email);
+    assert.equal(employee.employeeNumber, expected.employeeNumber);
+  });
+
+  it('searches by first name, last name, employee number, and job title', async () => {
+    const cases = [
+      { term: cEmployees[0].firstName, expected: cEmployees[0] },
+      { term: cEmployees[1].lastName, expected: cEmployees[1] },
+      { term: cEmployees[3].employeeNumber, expected: cEmployees[3] },
+      { term: cEmployees[2].jobTitle, expected: cEmployees[2] },
+    ];
+
+    for (const { term, expected } of cases) {
+      const result = await listC({ search: term });
+      assert.equal(
+        result.pagination.total,
+        1,
+        `search "${term}" should match exactly one employee`
+      );
+      assert.equal(result.employees[0].id, expected.id);
+      assert.equal(result.employees[0].email, expected.email);
+    }
+  });
+
+  it('filters the department fixture set exactly', async () => {
+    const result = await listC({ departmentId: deptC });
+
+    assert.equal(result.pagination.total, 2);
+    assert.deepEqual(
+      result.employees.map((employee) => employee.id).sort(),
+      [cEmployees[0].id, cEmployees[1].id].sort()
+    );
+  });
+
+  it('filters terminated employees in the fixture tenant', async () => {
+    const result = await listC({ status: 'TERMINATED' });
+
+    assert.equal(result.pagination.total, 1);
+    assert.equal(result.employees[0].id, cEmployees[3].id);
+  });
+
+  it('paginates deterministically and sorts by joinedAt', async () => {
+    const page = await listC({ sort: 'lastName', order: 'asc', pageSize: 2, page: 2 });
+
+    assert.equal(page.pagination.total, 5);
+    assert.equal(page.pagination.totalPages, 3);
+    assert.deepEqual(
+      page.employees.map((employee) => employee.id),
+      [cEmployees[2].id, cEmployees[3].id]
+    );
+
+    const latest = await listC({ sort: 'joinedAt', order: 'desc', pageSize: 2, page: 1 });
+    assert.equal(latest.employees[0].id, cEmployees[4].id);
+  });
+
+  it('summarizes the fixture tenant exactly', async () => {
+    const result = await listC();
+
+    assert.deepEqual(result.summary, {
+      total: 5,
+      active: 3,
+      onLeave: 1,
+      suspended: 0,
+      terminated: 1,
+    });
+  });
+
+  it('excludes other tenants from list results', async () => {
+    const outsider = await withOrganizationContext(orgB, (tx) =>
+      createEmployee(tx, orgB, userB, input({ email: 'org-b-outsider@example.com' }))
+    );
+
+    const result = await listC({ pageSize: 100 });
+
+    assert.equal(result.pagination.total, 5);
+    assert.equal(
+      result.employees.some((employee) => employee.id === outsider.id),
+      false
+    );
+    assert.equal(
+      result.employees.some((employee) => employee.email === outsider.email),
+      false
+    );
+  });
+
+  it('rejects writes without tenant context and leaves no rows', async () => {
+    await assert.rejects(
+      prisma.$transaction((tx) =>
+        createEmployee(tx, orgC, userC, input({ email: 'no-context@example.com' }))
+      )
+    );
+
+    const leaked = await adminPrisma.employee.findFirst({
+      where: { organizationId: orgC, email: 'no-context@example.com' },
+    });
+    assert.equal(leaked, null);
+  });
+
+  it('rejects an update that duplicates another employee email', async () => {
+    await expectHttpError(
+      withOrganizationContext(orgC, (tx) =>
+        updateEmployee(tx, orgC, userC, cEmployees[1].id, {
+          email: cEmployees[0].email,
+        })
+      ),
+      409,
+      'EMAIL_ALREADY_EXISTS'
+    );
+
+    const unchanged = await adminPrisma.employee.findUniqueOrThrow({
+      where: { id: cEmployees[1].id },
+    });
+    assert.equal(unchanged.email, cEmployees[1].email);
+  });
+
+  it('does not leak salaries into create or status audit metadata', async () => {
+    const created = await withOrganizationContext(orgA, (tx) =>
+      createEmployee(
+        tx,
+        orgA,
+        userA,
+        input({ email: 'audit-metadata@example.com', baseSalary: '166000.00' })
+      )
+    );
+
+    const createAudit = await adminPrisma.auditLog.findFirst({
+      where: { entityId: created.id, action: 'employee.created' },
+    });
+    assert.deepEqual(createAudit?.metadata, {
+      employeeNumber: created.employeeNumber,
+    });
+
+    await withOrganizationContext(orgA, (tx) =>
+      changeEmployeeStatus(tx, orgA, userA, created.id, 'ON_LEAVE')
+    );
+
+    const statusAudit = await adminPrisma.auditLog.findFirst({
+      where: { entityId: created.id, action: 'employee.status_changed' },
+    });
+    assert.deepEqual(statusAudit?.metadata, { from: 'ACTIVE', to: 'ON_LEAVE' });
   });
 
   it('updates fields and records changed fields without salary values', async () => {

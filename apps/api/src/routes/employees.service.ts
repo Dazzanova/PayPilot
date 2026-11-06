@@ -115,6 +115,16 @@ function isUniqueViolation(error: unknown, target: string): boolean {
   );
 }
 
+// Prisma on this PostgreSQL setup reports P2002 with meta.target = null, so the
+// targeted checks above cannot rely on the constraint name. Callers use this
+// fallback only after excluding the conflicts they can identify themselves.
+function isUniqueViolationError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
+}
+
 async function writeAudit(
   tx: Tx,
   organizationId: string,
@@ -264,6 +274,11 @@ export async function createEmployee(
     if (isUniqueViolation(error, 'employee_number')) {
       throw new HttpError(409, 'DUPLICATE_EMPLOYEE_NUMBER', 'Could not allocate a unique employee number');
     }
+    // The email pre-check ran while the advisory lock was held, so an
+    // unidentifiable P2002 here is an employee number collision.
+    if (isUniqueViolationError(error)) {
+      throw new HttpError(409, 'DUPLICATE_EMPLOYEE_NUMBER', 'Could not allocate a unique employee number');
+    }
     if (isForeignKeyViolation(error)) {
       throw new HttpError(
         400,
@@ -361,6 +376,11 @@ export async function updateEmployee(
     return toEmployeeDto(employee);
   } catch (error) {
     if (isUniqueViolation(error, 'email')) {
+      throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
+    }
+    // Employee numbers never change on update, so an unidentifiable P2002
+    // here is an email collision.
+    if (isUniqueViolationError(error)) {
       throw new HttpError(409, 'EMAIL_ALREADY_EXISTS', 'An employee with this email already exists');
     }
     if (isRecordNotFound(error)) {
