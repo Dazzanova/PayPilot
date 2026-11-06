@@ -172,7 +172,9 @@ model Employee {
   payslips          Payslip[]
 
   @@unique([organizationId, employeeNumber])
+  @@unique([organizationId, email])
   @@index([organizationId])
+  @@index([organizationId, status])
   @@index([departmentId])
   @@map("employees")
 }
