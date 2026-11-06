@@ -62,14 +62,20 @@ describe('PayPilot API Route Verification & Regression Tests', () => {
     assert.equal(typeof body.data.uptimeSeconds, 'number');
   });
 
-  test('GET /api/health/db reports disconnected/503 when live DB is unavailable without crashing', async () => {
+  test('GET /api/health/db reports the live database state without crashing', async () => {
     const res = await fetch(`${baseUrl}/api/health/db`);
-    // When no DB server is active, it must safely return 503 with diagnostic payload
-    assert.equal(res.status, 503);
     const body = await res.json();
-    assert.equal(body.success, false);
-    assert.equal(body.error.code, 'DATABASE_UNAVAILABLE');
-    assert.equal(body.data.database, 'disconnected');
+
+    if (res.status === 200) {
+      assert.equal(body.success, true);
+      assert.equal(body.data.database, 'connected');
+      assert.equal(typeof body.data.latencyMs, 'number');
+    } else {
+      assert.equal(res.status, 503);
+      assert.equal(body.success, false);
+      assert.equal(body.error.code, 'DATABASE_UNAVAILABLE');
+      assert.equal(body.data.database, 'disconnected');
+    }
   });
 
   test('Undefined routes return standardized 404 JSON', async () => {

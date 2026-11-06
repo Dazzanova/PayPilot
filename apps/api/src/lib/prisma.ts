@@ -6,6 +6,10 @@ declare global {
   var prismaGlobal: PrismaClient | undefined;
 }
 
+/**
+ * Application database client. DATABASE_URL must point at the least-privileged
+ * runtime role. Protected queries must be wrapped with withOrganizationContext.
+ */
 export const prisma =
   global.prismaGlobal ||
   new PrismaClient({
@@ -26,7 +30,6 @@ export async function checkDatabaseConnection(): Promise<{
 }> {
   const start = Date.now();
   try {
-    // Run simple lightweight ping query
     await prisma.$queryRaw`SELECT 1`;
     return {
       connected: true,

@@ -27,16 +27,39 @@ const envSchema = z.object({
     .pipe(z.number().positive().max(65535))
     .default('4000'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  DATABASE_URL: z.string().optional(),
-  DIRECT_URL: z.string().optional(),
+  DATABASE_URL: z.string().min(1),
+  DIRECT_URL: z.string().min(1).optional(),
+  KEYCLOAK_ISSUER: z.string().url(),
+  KEYCLOAK_AUDIENCE: z.string().min(1),
+  KEYCLOAK_JWKS_URI: z.string().url().optional(),
 });
+
+export type Config = z.infer<typeof envSchema>;
+
+let config: Config;
 
 const parsedEnv = envSchema.safeParse(process.env);
 
 if (!parsedEnv.success) {
-  console.error('❌ Invalid environment configuration:', parsedEnv.error.format());
-  process.exit(1);
+  if (process.env.NODE_ENV === 'test') {
+    config = {
+      NODE_ENV: 'test',
+      PORT: 4000,
+      CORS_ORIGIN: 'http://localhost:5173',
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        'postgresql://paypilot_app:paypilot_app@localhost:5433/paypilot?schema=public',
+      KEYCLOAK_ISSUER:
+        process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8080/realms/paypilot',
+      KEYCLOAK_AUDIENCE: process.env.KEYCLOAK_AUDIENCE ?? 'paypilot-api',
+      KEYCLOAK_JWKS_URI: process.env.KEYCLOAK_JWKS_URI,
+    };
+  } else {
+    console.error('❌ Invalid environment configuration:', parsedEnv.error.format());
+    process.exit(1);
+  }
+} else {
+  config = parsedEnv.data;
 }
 
-export const config = parsedEnv.data;
-export type Config = z.infer<typeof envSchema>;
+export { config };

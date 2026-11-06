@@ -36,7 +36,7 @@ healthRouter.get('/db', async (req: Request, res: Response) => {
       success: false,
       error: {
         code: 'DATABASE_UNAVAILABLE',
-        message: 'Could not establish connection to PostgreSQL / Supabase',
+        message: 'Could not establish connection to PostgreSQL',
         details: dbStatus.error,
       },
       data: {
