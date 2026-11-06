@@ -1,6 +1,6 @@
 // ==============================================================================
 // PayPilot HRMS & Payroll SaaS - Relational Database Schema
-// Optimized for Supabase PostgreSQL
+// PostgreSQL with native row-level security
 // ==============================================================================
 
 datasource db {
@@ -105,14 +105,16 @@ model Organization {
 }
 
 model User {
-  id             String    @id @default(uuid())
-  organizationId String    @map("organization_id")
-  email          String    @unique
-  role           UserRole  @default(EMPLOYEE)
-  isActive       Boolean   @default(true) @map("is_active")
-  lastLoginAt    DateTime? @map("last_login_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  identityIssuer   String?   @map("identity_issuer")
+  identitySubject  String?   @map("identity_subject")
+  email            String    @unique
+  role             UserRole  @default(EMPLOYEE)
+  isActive         Boolean   @default(true) @map("is_active")
+  lastLoginAt      DateTime? @map("last_login_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   // Relationships
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -120,6 +122,7 @@ model User {
   reviewedLeaves LeaveRequest[] @relation("ReviewedLeaves")
   auditLogs      AuditLog[]     @relation("ActorAuditLogs")
 
+  @@unique([identityIssuer, identitySubject])
   @@index([organizationId])
   @@map("users")
 }

@@ -14,10 +14,16 @@
     "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:web": "npm run build --workspace=apps/web",
     "build:api": "npm run build --workspace=apps/api",
+    "infra:up": "docker-compose up -d",
+    "infra:down": "docker-compose down",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "provision:user": "tsx scripts/provision-dev-user.ts",
     "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
-    "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web"
+    "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web",
+    "test:integration": "npm run test:integration --workspace=apps/api"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
