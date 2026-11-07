@@ -16,8 +16,8 @@
 - [x] Tasks 8–11: typed API client, modal, employee form, status dialog, live employees page.
 - [x] Task 12: README endpoints and seed documentation.
 - [x] Task 13 (automated): schema validation, both typechecks, API + web builds, unit tests, integration tests, migration status.
-- [ ] Task 13 (manual): browser walkthrough of create, edit, status, duplicate email, filters, and the MANAGER/EMPLOYEE restricted state.
-- [ ] Task 14: final review and branch handoff.
+- [x] Task 13 (manual): browser walkthrough of create, edit, status, duplicate email, filters, and the MANAGER/EMPLOYEE restricted state.
+- [x] Task 14: final review and branch handoff.
 
 Automated verification at `bb73dc9` before the manual step:
 
@@ -30,6 +30,22 @@ Automated verification at `bb73dc9` before the manual step:
 - `npm run test:integration` — 98/98 pass, including HTTP route coverage.
 - `npm run seed:dev` twice — six departments, idempotent.
 - Demo organization `paypilot-demo` — 6 departments, 0 employees.
+
+Manual browser verification (Chrome via DevTools Protocol, real Keycloak login):
+
+- Admin (`ADMIN`): empty state with six departments and the Add Employee action.
+- Created Alex Mercer (Engineering) as `PP-1001`; created Riley Chen (Human Resources) as `PP-1002`.
+- Duplicate email was rejected with the 409 message inside the form.
+- Edited job title and salary; the row and summary cards refreshed from the API.
+- Changed status to `ON_LEAVE`; the badge updated and the status filter then showed only `ACTIVE` rows.
+- Department filter and last-name search narrowed the table correctly.
+- Audit log contained `employee.created`, `employee.updated`, and `employee.status_changed` rows with metadata limited to employee number, changed field names, and status transitions — no salary values.
+- Provisioned `manager@paypilot.local` (`MANAGER`) and `employee@paypilot.local` (`EMPLOYEE`); both saw the "Access restricted" state with no table or create controls.
+- Verification employees and their audit rows were removed afterwards, restoring the empty demo state.
+
+Screenshots (outside the repository): `/tmp/opencode/01-create-filled.png`, `02-after-create.png`, `03-duplicate-email.png`, `04-after-edit.png`, `05-after-status.png`, `06-final-directory.png`, `07-manager-restricted.png`.
+
+Final review: diff against `main` checked for whitespace errors, dead mock imports, TODOs, and response-after-commit behavior. No blocking findings. Branch left unmerged for review.
 
 ---
 
