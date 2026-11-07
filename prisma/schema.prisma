@@ -78,6 +78,18 @@ enum PayslipStatus {
   PAID
 }
 
+enum PayrollImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ValidationSeverity {
+  ERROR
+  WARNING
+  INFO
+}
+
 // ------------------------------------------------------------------------------
 // Multi-Tenant Core Models
 // ------------------------------------------------------------------------------
@@ -92,35 +104,39 @@ model Organization {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relationships
-  users             User[]
-  departments       Department[]
-  employees         Employee[]
-  attendanceRecords AttendanceRecord[]
-  leaveRequests     LeaveRequest[]
-  payrollRuns       PayrollRun[]
-  payslips          Payslip[]
-  auditLogs         AuditLog[]
+  users                  User[]
+  departments            Department[]
+  employees              Employee[]
+  attendanceRecords      AttendanceRecord[]
+  leaveRequests          LeaveRequest[]
+  payrollRuns            PayrollRun[]
+  payslips               Payslip[]
+  auditLogs              AuditLog[]
+  payrollImportBatches   PayrollImportBatch[]
+  importedPayrollRecords ImportedPayrollRecord[]
+  validationFindings     ValidationFinding[]
 
   @@map("organizations")
 }
 
 model User {
-  id               String    @id @default(uuid())
-  organizationId   String    @map("organization_id")
-  identityIssuer   String?   @map("identity_issuer")
-  identitySubject  String?   @map("identity_subject")
-  email            String    @unique
-  role             UserRole  @default(EMPLOYEE)
-  isActive         Boolean   @default(true) @map("is_active")
-  lastLoginAt      DateTime? @map("last_login_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  identityIssuer  String?   @map("identity_issuer")
+  identitySubject String?   @map("identity_subject")
+  email           String    @unique
+  role            UserRole  @default(EMPLOYEE)
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   // Relationships
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  employee       Employee?
-  reviewedLeaves LeaveRequest[] @relation("ReviewedLeaves")
-  auditLogs      AuditLog[]     @relation("ActorAuditLogs")
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee             Employee?
+  reviewedLeaves       LeaveRequest[]       @relation("ReviewedLeaves")
+  auditLogs            AuditLog[]           @relation("ActorAuditLogs")
+  payrollImportBatches PayrollImportBatch[] @relation("CreatedPayrollImports")
 
   @@unique([identityIssuer, identitySubject])
   @@index([organizationId])
@@ -164,12 +180,13 @@ model Employee {
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   // Relationships
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  department        Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
-  attendanceRecords AttendanceRecord[]
-  leaveRequests     LeaveRequest[]
-  payslips          Payslip[]
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department           Department?             @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  user                 User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendanceRecords    AttendanceRecord[]
+  leaveRequests        LeaveRequest[]
+  payslips             Payslip[]
+  payrollImportRecords ImportedPayrollRecord[]
 
   @@unique([organizationId, employeeNumber])
   @@unique([organizationId, email])
@@ -290,4 +307,88 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+model PayrollImportBatch {
+  id               String              @id @default(uuid())
+  organizationId   String              @map("organization_id")
+  createdById      String?             @map("created_by_id")
+  originalFilename String              @map("original_filename")
+  storageKey       String?             @map("storage_key")
+  fileHash         String              @map("file_hash")
+  fileSizeBytes    Int                 @map("file_size_bytes")
+  rulesetVersion   String              @map("ruleset_version")
+  status           PayrollImportStatus @default(PROCESSING)
+  rowCount         Int                 @default(0) @map("row_count")
+  validRowCount    Int                 @default(0) @map("valid_row_count")
+  invalidRowCount  Int                 @default(0) @map("invalid_row_count")
+  errorCount       Int                 @default(0) @map("error_count")
+  warningCount     Int                 @default(0) @map("warning_count")
+  infoCount        Int                 @default(0) @map("info_count")
+  currency         String?
+  payPeriodStart   DateTime?           @map("pay_period_start") @db.Date
+  payPeriodEnd     DateTime?           @map("pay_period_end") @db.Date
+  retentionUntil   DateTime            @map("retention_until")
+  filePurgedAt     DateTime?           @map("file_purged_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  completedAt      DateTime?           @map("completed_at")
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                   @relation("CreatedPayrollImports", fields: [createdById], references: [id], onDelete: SetNull)
+  records      ImportedPayrollRecord[]
+  findings     ValidationFinding[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+  @@index([organizationId, fileHash])
+  @@map("payroll_import_batches")
+}
+
+model ImportedPayrollRecord {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  batchId         String    @map("batch_id")
+  employeeId      String?   @map("employee_id")
+  employeeNumber  String    @map("employee_number")
+  rowNumber       Int       @map("row_number")
+  payPeriodStart  DateTime? @map("pay_period_start") @db.Date
+  payPeriodEnd    DateTime? @map("pay_period_end") @db.Date
+  currency        String?
+  grossPay        Decimal?  @map("gross_pay") @db.Decimal(14, 2)
+  totalDeductions Decimal?  @map("total_deductions") @db.Decimal(14, 2)
+  netPay          Decimal?  @map("net_pay") @db.Decimal(14, 2)
+  isValid         Boolean   @default(false) @map("is_valid")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  batch        PayrollImportBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee     Employee?           @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  findings     ValidationFinding[]
+
+  @@index([organizationId, batchId])
+  @@index([employeeId])
+  @@map("imported_payroll_records")
+}
+
+model ValidationFinding {
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  batchId        String             @map("batch_id")
+  recordId       String?            @map("record_id")
+  rowNumber      Int?               @map("row_number")
+  field          String?
+  ruleCode       String             @map("rule_code")
+  severity       ValidationSeverity
+  message        String
+  expected       String?
+  actual         String?
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  batch        PayrollImportBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  record       ImportedPayrollRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, batchId, severity])
+  @@index([batchId, rowNumber])
+  @@map("validation_findings")
 }
