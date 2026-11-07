@@ -92,6 +92,69 @@ export interface PayrollRun {
   employeeCount: number;
 }
 
+export interface EmployeeDto {
+  id: string;
+  employeeNumber: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  jobTitle: string;
+  employmentType: EmploymentType;
+  status: EmployeeStatus;
+  joinedAt: string;
+  baseSalary: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  userId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DepartmentDto {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+}
+
+export interface EmployeeListResult {
+  employees: EmployeeDto[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  summary: {
+    total: number;
+    active: number;
+    onLeave: number;
+    suspended: number;
+    terminated: number;
+  };
+  sort: { field: string; order: string };
+}
+
+export interface EmployeeCreateInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+  jobTitle: string;
+  departmentId?: string | null;
+  employmentType: EmploymentType;
+  joinedAt: string;
+  baseSalary: string;
+}
+
+export type EmployeeUpdateInput = Partial<EmployeeCreateInput>;
+
+export interface EmployeeFilters {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  departmentId?: string;
+  status?: EmployeeStatus;
+  sort?: 'lastName' | 'joinedAt' | 'employeeNumber' | 'createdAt';
+  order?: 'asc' | 'desc';
+}
+
 export interface ActivityItem {
   id: string;
   actorName: string;

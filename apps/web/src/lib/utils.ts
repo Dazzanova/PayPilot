@@ -14,7 +14,12 @@ export function formatCurrency(amount: number, currency: string = 'USD'): string
 }
 
 export function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
+  // Date-only values are calendar dates, not instants; parse them as local time
+  // so they do not shift to the previous day in negative UTC offsets.
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateString);
+  const date = new Date(dateOnly ? `${dateString}T00:00:00` : dateString);
+
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

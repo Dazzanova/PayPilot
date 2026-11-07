@@ -2,11 +2,17 @@ import { keycloak } from './keycloak';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
+export interface ApiErrorDetail {
+  path: string;
+  message: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public code?: string
+    public code?: string,
+    public details?: ApiErrorDetail[]
   ) {
     super(message);
     this.name = 'ApiError';
@@ -19,6 +25,7 @@ interface ApiResponse<T> {
   error?: {
     code: string;
     message: string;
+    details?: ApiErrorDetail[];
   };
 }
 
@@ -57,7 +64,8 @@ class ApiClient {
       throw new ApiError(
         data.error?.message || 'Request failed',
         response.status,
-        data.error?.code
+        data.error?.code,
+        data.error?.details
       );
     }
 
