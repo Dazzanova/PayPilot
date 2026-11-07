@@ -131,6 +131,7 @@ describe('validateParsedRegister', () => {
     const result = validate([row(), row()]);
     assert.deepEqual(codes(result.records[0].findings), []);
     assert.deepEqual(codes(result.records[1].findings), ['DUPLICATE_EMPLOYEE_PERIOD']);
+    assert.equal(result.records[1].findings[0].rowNumber, 2);
     assert.equal(result.validRowCount, 1);
     assert.equal(result.invalidRowCount, 1);
   });

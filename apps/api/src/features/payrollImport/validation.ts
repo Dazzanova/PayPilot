@@ -401,6 +401,11 @@ export function validateParsedRegister(
       }
     }
 
+    const recordFindings = sortFindings(findings).map((entry) => ({
+      ...entry,
+      rowNumber: entry.rowNumber ?? row.rowNumber,
+    }));
+
     records.push({
       rowNumber: row.rowNumber,
       employeeId,
@@ -411,8 +416,8 @@ export function validateParsedRegister(
       grossPay: gross?.amount ?? null,
       totalDeductions: deductions?.amount ?? null,
       netPay: net?.amount ?? null,
-      isValid: !findings.some((entry) => RULE_SEVERITY[entry.ruleCode] === 'ERROR'),
-      findings: sortFindings(findings),
+      isValid: !recordFindings.some((entry) => RULE_SEVERITY[entry.ruleCode] === 'ERROR'),
+      findings: recordFindings,
     });
   }
 
