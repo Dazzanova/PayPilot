@@ -316,7 +316,9 @@ export function requireRole(...allowedRoles: UserRole[]) {
 export interface TenantRouteResponse {
   status?: number;
   location?: string;
-  body: unknown;
+  body?: unknown;
+  /** Send a generated attachment instead of JSON, after the transaction commits. */
+  file?: { content: string; contentType: string; filename: string };
 }
 
 /**
@@ -355,6 +357,16 @@ export function tenantRouteHandler(
       const response = await withOrganizationContext(organizationId, (tx) =>
         handler(req, tx)
       );
+
+      if (response.file) {
+        res
+          .status(response.status ?? 200)
+          .set('Content-Type', response.file.contentType)
+          .set('Content-Disposition', `attachment; filename="${response.file.filename}"`)
+          .set('Cache-Control', 'no-store')
+          .send(response.file.content);
+        return;
+      }
 
       if (response.location) {
         res.location(response.location);

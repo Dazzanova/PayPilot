@@ -14,9 +14,16 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   next: NextFunction
 ): void {
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-  const code = err.code || 'INTERNAL_ERROR';
+  const payloadTooLarge =
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { type?: string }).type === 'entity.too.large';
+
+  const statusCode = payloadTooLarge ? 413 : err.statusCode || 500;
+  const message = payloadTooLarge
+    ? 'The uploaded file is too large.'
+    : err.message || 'Internal Server Error';
+  const code = payloadTooLarge ? 'PAYLOAD_TOO_LARGE' : err.code || 'INTERNAL_ERROR';
 
   logger.error(`Error on ${req.method} ${req.originalUrl}:`, {
     message,
