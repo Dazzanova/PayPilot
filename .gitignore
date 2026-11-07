@@ -33,3 +33,6 @@ Thumbs.db
 
 # Prisma generated artifacts
 prisma/migrations/dev.db*
+
+# Private payroll import storage (raw uploaded registers)
+var/
