@@ -1,6 +1,7 @@
 import { RequestHandler, Router } from 'express';
 import { UserRole } from '@prisma/client';
 import { requireAuth, requireRole, tenantRouteHandler } from '../middleware/auth';
+import { HttpError } from '../lib/httpError';
 
 const HR_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.HR_MANAGER] as const;
 
@@ -21,7 +22,7 @@ export function createDepartmentsRouter(
       const organizationId = req.auth?.organization.id;
 
       if (!organizationId) {
-        throw new Error('Tenant context is required for this operation');
+        throw new HttpError(401, 'NO_TENANT_CONTEXT', 'Tenant context is required');
       }
 
       const departments = await tx.department.findMany({

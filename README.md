@@ -14,7 +14,7 @@ A multi-tenant Human Resource Management System (HRMS) and Payroll platform foun
 - **Payroll Cycles & Payslips:** Batch period runs, gross-to-net salary reconciliations, and payslip distribution.
 - **Multi-Tenant Foundation:** Database-enforced tenant isolation plus role-based access levels (`SUPER_ADMIN`, `ADMIN`, `HR_MANAGER`, `MANAGER`, `EMPLOYEE`).
 
-> **Current phase:** Supabase has been replaced with independently managed PostgreSQL and Keycloak. Authentication uses Authorization Code + PKCE S256, the API verifies Keycloak JWTs through JWKS, and PostgreSQL RLS isolates tenants using transaction-local context. Business data mutations remain scoped to demo/sandbox states pending employee CRUD implementation.
+> **Current phase:** Supabase has been replaced with independently managed PostgreSQL and Keycloak. Authentication uses Authorization Code + PKCE S256, the API verifies Keycloak JWTs through JWKS, and PostgreSQL RLS isolates tenants using transaction-local context. The employee directory is backed by live database records with a validated API and audit logging; attendance, leave, and payroll remain demo views.
 
 ---
 
@@ -161,7 +161,17 @@ npm run provision:user -- \
 
 The password for the created Keycloak user is `KEYCLOAK_DEV_USER_PASSWORD` from `.env`.
 
-### 5.6 Run the applications
+### 5.6 Seed demo departments
+
+Seed the six demo departments (idempotent, requires the demo organization):
+
+```bash
+npm run seed:dev
+```
+
+Override the organization with `SEED_ORGANIZATION_SLUG`. The script never creates employees or organizations.
+
+### 5.7 Run the applications
 
 ```bash
 npm run dev
@@ -279,13 +289,21 @@ npm run test:integration
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/auth/me` | Authenticated user's profile, role, and organization |
+| `GET` | `/api/employees` | Paginated employee list with search, filters, and summary |
+| `GET` | `/api/employees/:id` | Single employee |
+| `POST` | `/api/employees` | Create an employee |
+| `PATCH` | `/api/employees/:id` | Update employee fields |
+| `PATCH` | `/api/employees/:id/status` | Change employee status |
+| `GET` | `/api/departments` | Departments for the current organization |
+
+Employee and department endpoints require `SUPER_ADMIN`, `ADMIN`, or `HR_MANAGER`. Employee numbers are generated server-side (`PP-1001`, `PP-1002`, …). Employees are offboarded by changing status, never by hard delete.
 
 ---
 
 ## 11. Next Implementation Milestones
 
 1. ~~**Authentication & tenant isolation:**~~ Complete — Keycloak OIDC, JWKS verification, provider-neutral identity mapping, native PostgreSQL RLS.
-2. **Employee Directory CRUD:** Zod validation, profile avatars, and pagination.
+2. ~~**Employee Directory CRUD:**~~ Complete — validated API, tenant-scoped service, RLS enforcement, audit logging, live UI with create/edit and status changes.
 3. **Attendance System:** Geo/device-aware clock-in punch engine and timesheet export.
 4. **Leave Approval Engine:** Tiered manager approval workflows and holiday calendar calculations.
 5. **Payroll Calculation Engine:** Localized tax brackets, statutory deductions, and automated PDF payslip generation.
