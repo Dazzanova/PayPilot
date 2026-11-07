@@ -173,3 +173,76 @@ export interface UpcomingBirthdayOrJoiner {
   dateString: string;
   relativeBadge: string;
 }
+
+export type PayrollImportStatus = 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type ValidationSeverity = 'ERROR' | 'WARNING' | 'INFO';
+
+export interface PayrollImportBatch {
+  id: string;
+  originalFilename: string;
+  status: PayrollImportStatus;
+  rulesetVersion: string;
+  rowCount: number;
+  validRowCount: number;
+  invalidRowCount: number;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  currency: string | null;
+  payPeriodStart: string | null;
+  payPeriodEnd: string | null;
+  fileSizeBytes: number;
+  retentionUntil: string;
+  filePurgedAt: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  createdBy: { id: string; email: string } | null;
+}
+
+export interface PayrollImportRecord {
+  id: string;
+  rowNumber: number;
+  employeeId: string | null;
+  employeeNumber: string;
+  employeeName: string | null;
+  payPeriodStart: string | null;
+  payPeriodEnd: string | null;
+  currency: string | null;
+  grossPay: string | null;
+  totalDeductions: string | null;
+  netPay: string | null;
+  isValid: boolean;
+}
+
+export interface PayrollImportFinding {
+  id: string;
+  rowNumber: number | null;
+  field: string | null;
+  ruleCode: string;
+  severity: ValidationSeverity;
+  message: string;
+  expected: string | null;
+  actual: string | null;
+}
+
+export interface Pagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PayrollImportsResult {
+  batches: PayrollImportBatch[];
+  pagination: Pagination;
+}
+
+export interface PayrollImportRecordsResult {
+  records: PayrollImportRecord[];
+  pagination: Pagination;
+}
+
+export interface PayrollImportFindingsResult {
+  findings: PayrollImportFinding[];
+  pagination: Pagination;
+}
