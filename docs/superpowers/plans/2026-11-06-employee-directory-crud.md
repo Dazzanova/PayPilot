@@ -10,6 +10,27 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-06-employee-directory-crud-design.md`
 
+## Implementation status
+
+- [x] Tasks 1–7: database constraints, numbering helpers, validation, service, routers, integration tests, seed.
+- [x] Tasks 8–11: typed API client, modal, employee form, status dialog, live employees page.
+- [x] Task 12: README endpoints and seed documentation.
+- [x] Task 13 (automated): schema validation, both typechecks, API + web builds, unit tests, integration tests, migration status.
+- [ ] Task 13 (manual): browser walkthrough of create, edit, status, duplicate email, filters, and the MANAGER/EMPLOYEE restricted state.
+- [ ] Task 14: final review and branch handoff.
+
+Automated verification at `bb73dc9` before the manual step:
+
+- `npm run prisma:validate` — schema valid.
+- `npm run db:status` — 5 migrations, database up to date.
+- `npm run typecheck` — API and web pass.
+- `npm run typecheck:tests --workspace=apps/api` — pass.
+- `npm run build` — API and web pass.
+- `npm test` — 53/53 API unit tests pass; web typecheck passes.
+- `npm run test:integration` — 98/98 pass, including HTTP route coverage.
+- `npm run seed:dev` twice — six departments, idempotent.
+- Demo organization `paypilot-demo` — 6 departments, 0 employees.
+
 ---
 
 ## File Map

@@ -22,7 +22,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { label: 'Employees', path: '/employees', icon: Users, badge: '10' },
+  { label: 'Employees', path: '/employees', icon: Users },
   { label: 'Attendance', path: '/attendance', icon: CalendarCheck },
   { label: 'Leave Management', path: '/leave', icon: CalendarOff, badge: '3' },
   { label: 'Payroll', path: '/payroll', icon: Banknote },
