@@ -6,6 +6,7 @@ import {
   CalendarCheck,
   CalendarOff,
   Banknote,
+  FileUp,
   Building2,
   Settings,
   ShieldAlert,
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { label: 'Attendance', path: '/attendance', icon: CalendarCheck },
   { label: 'Leave Management', path: '/leave', icon: CalendarOff, badge: '3' },
   { label: 'Payroll', path: '/payroll', icon: Banknote },
+  { label: 'Payroll Imports', path: '/payroll/imports', icon: FileUp },
   { label: 'Departments', path: '/departments', icon: Building2 },
   { label: 'Settings', path: '/settings', icon: Settings },
 ];
@@ -92,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 key={item.path}
                 to={item.path}
                 onClick={onClose}
-                end={item.path === '/'}
+                end={item.path === '/' || item.path === '/payroll'}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',

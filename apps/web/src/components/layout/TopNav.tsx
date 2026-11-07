@@ -21,6 +21,8 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/attendance': { title: 'Attendance Log', subtitle: 'Daily check-in logs and time records' },
   '/leave': { title: 'Leave Management', subtitle: 'Employee time-off requests and approvals' },
   '/payroll': { title: 'Payroll Processing', subtitle: 'Salary cycles, payslips, and disbursements' },
+  '/payroll/imports': { title: 'Payroll Imports', subtitle: 'Upload registers and review validation findings' },
+  '/payroll/imports/:id': { title: 'Payroll Import Detail', subtitle: 'Validation findings, records, and exception report' },
   '/departments': { title: 'Departments', subtitle: 'Organizational units and department leaders' },
   '/settings': { title: 'Organization Settings', subtitle: 'Company profiles, policies, and role permissions' },
 };
@@ -31,10 +33,14 @@ export const TopNav: React.FC<TopNavProps> = ({ onOpenMobileMenu }) => {
   const { user, organization, signOut } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const currentInfo = pageTitles[location.pathname] || {
-    title: 'PayPilot',
-    subtitle: 'Enterprise HRMS & Payroll',
-  };
+  const currentInfo =
+    pageTitles[location.pathname] ||
+    (location.pathname.startsWith('/payroll/imports/')
+      ? pageTitles['/payroll/imports/:id']
+      : undefined) || {
+      title: 'PayPilot',
+      subtitle: 'Enterprise HRMS & Payroll',
+    };
 
   const handleSignOut = async () => {
     try {
