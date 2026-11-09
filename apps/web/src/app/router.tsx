@@ -11,6 +11,8 @@ const EmployeesPage = lazy(() => import('../pages/EmployeesPage').then(m => ({ d
 const AttendancePage = lazy(() => import('../pages/AttendancePage').then(m => ({ default: m.AttendancePage })));
 const LeavePage = lazy(() => import('../pages/LeavePage').then(m => ({ default: m.LeavePage })));
 const PayrollPage = lazy(() => import('../pages/PayrollPage').then(m => ({ default: m.PayrollPage })));
+const PayrollImportsPage = lazy(() => import('../pages/PayrollImportsPage').then(m => ({ default: m.PayrollImportsPage })));
+const PayrollImportDetailPage = lazy(() => import('../pages/PayrollImportDetailPage').then(m => ({ default: m.PayrollImportDetailPage })));
 const DepartmentsPage = lazy(() => import('../pages/DepartmentsPage').then(m => ({ default: m.DepartmentsPage })));
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
@@ -70,6 +72,22 @@ export const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingFallback />}>
             <PayrollPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'payroll/imports',
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <PayrollImportsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'payroll/imports/:id',
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <PayrollImportDetailPage />
           </Suspense>
         ),
       },

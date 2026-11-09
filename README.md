@@ -14,7 +14,7 @@ A multi-tenant Human Resource Management System (HRMS) and Payroll platform foun
 - **Payroll Cycles & Payslips:** Batch period runs, gross-to-net salary reconciliations, and payslip distribution.
 - **Multi-Tenant Foundation:** Database-enforced tenant isolation plus role-based access levels (`SUPER_ADMIN`, `ADMIN`, `HR_MANAGER`, `MANAGER`, `EMPLOYEE`).
 
-> **Current phase:** Supabase has been replaced with independently managed PostgreSQL and Keycloak. Authentication uses Authorization Code + PKCE S256, the API verifies Keycloak JWTs through JWKS, and PostgreSQL RLS isolates tenants using transaction-local context. The employee directory is backed by live database records with a validated API and audit logging; attendance, leave, and payroll remain demo views.
+> **Current phase:** Supabase has been replaced with independently managed PostgreSQL and Keycloak. Authentication uses Authorization Code + PKCE S256, the API verifies Keycloak JWTs through JWKS, and PostgreSQL RLS isolates tenants using transaction-local context. The employee directory is backed by live database records with a validated API and audit logging. Payroll registers can now be imported and validated into dedicated import tables; attendance, leave, and finalized payroll remain demo views.
 
 ---
 
@@ -203,6 +203,7 @@ Sign in at http://localhost:5173/login with the provisioned email and developmen
 | `KEYCLOAK_PORT`, `KEYCLOAK_ADMIN_USER`, `KEYCLOAK_ADMIN_PASSWORD` | Keycloak bootstrap admin |
 | `PORT`, `CORS_ORIGIN`, `NODE_ENV` | API runtime settings |
 | `DATABASE_URL`, `DIRECT_URL` | Runtime and migration connection strings |
+| `PAYROLL_IMPORT_STORAGE_DIR` | Optional private directory for raw payroll registers; defaults to `<repo>/var/payroll-imports` |
 | `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` | Keycloak server and public client |
 | `KEYCLOAK_ISSUER`, `KEYCLOAK_AUDIENCE` | Exact JWT issuer and API audience |
 | `KEYCLOAK_JWKS_URI` | Optional JWKS override; defaults to issuer `/protocol/openid-connect/certs` |
@@ -233,6 +234,7 @@ npm run prisma:validate     # validate schema
 npm run prisma:generate     # generate Prisma Client
 npm run db:migrate          # apply forward-only migrations via DIRECT_URL
 npm run db:status           # show migration status
+npm run purge:payroll-imports  # remove raw import files past 90-day retention
 ```
 
 Key security properties:
@@ -295,8 +297,35 @@ npm run test:integration
 | `PATCH` | `/api/employees/:id` | Update employee fields |
 | `PATCH` | `/api/employees/:id/status` | Change employee status |
 | `GET` | `/api/departments` | Departments for the current organization |
+| `POST` | `/api/payroll-imports` | Upload a `text/csv` payroll register with `X-File-Name` |
+| `GET` | `/api/payroll-imports` | Paginated import history with optional `status` |
+| `GET` | `/api/payroll-imports/:id` | Import batch detail and counts |
+| `GET` | `/api/payroll-imports/:id/records` | Paginated imported records with optional `valid` |
+| `GET` | `/api/payroll-imports/:id/findings` | Paginated findings with optional `severity` and `ruleCode` |
+| `GET` | `/api/payroll-imports/:id/exception-report` | Downloadable CSV exception report |
 
-Employee and department endpoints require `SUPER_ADMIN`, `ADMIN`, or `HR_MANAGER`. Employee numbers are generated server-side (`PP-1001`, `PP-1002`, …). Employees are offboarded by changing status, never by hard delete.
+Employee and department endpoints require `SUPER_ADMIN`, `ADMIN`, or `HR_MANAGER`. Employee numbers are generated server-side (`PP-1001`, `PP-1002`, …). Employees are offboarded by changing status, never by hard delete. Payroll import endpoints use the same HR role restriction.
+
+### Payroll register imports
+
+Upload one CSV per batch with exactly these columns:
+
+```csv
+employee_number,pay_period_start,pay_period_end,currency,gross_pay,total_deductions,net_pay
+PP-1001,2026-10-01,2026-10-31,INR,75000.00,12500.00,62500.00
+```
+
+- Dates are ISO `YYYY-MM-DD`; currency is a three-letter uppercase code; money allows at most two decimal places.
+- Limits are 5 MB per request and 10,000 data rows. Files must use one currency and one pay period per batch.
+- File-level problems (empty file, invalid header, CSV parse error, row limit) persist a `FAILED` batch. Row-level problems keep the batch `COMPLETED` with invalid rows and findings.
+- Rules include missing/invalid values, invalid dates and periods, unknown employees, negative amounts, arithmetic mismatches, duplicate employee periods, inconsistent currency/period, inactive employees, and periods before the join date. Findings carry a stable rule code, severity, row/field, explanation, and expected/actual values under ruleset `payroll-import-rules/v1`.
+- The invariant is `gross_pay - total_deductions = net_pay`, compared as decimal cents rather than floating point.
+- Employees are resolved only within the authenticated organization. Inactive employees are not rejected for status alone.
+- Re-uploading identical bytes is rejected with `409 DUPLICATE_IMPORT` when a completed batch with the same SHA-256 hash exists. Failed batches may be retried.
+- Raw files are stored privately outside the web root with `0700` directories and `0600` files, retained for 90 days, then removed by `npm run purge:payroll-imports`. Batch metadata, records, and findings remain. There is no raw-file download endpoint.
+- Imported records never write to `payroll_runs` or `payslips`; they are validation input, not finalized payroll.
+
+The web app exposes **Payroll Imports** at `/payroll/imports` with upload, history, filters, detail, findings/records tabs, and the exception report download.
 
 ---
 
@@ -304,6 +333,7 @@ Employee and department endpoints require `SUPER_ADMIN`, `ADMIN`, or `HR_MANAGER
 
 1. ~~**Authentication & tenant isolation:**~~ Complete — Keycloak OIDC, JWKS verification, provider-neutral identity mapping, native PostgreSQL RLS.
 2. ~~**Employee Directory CRUD:**~~ Complete — validated API, tenant-scoped service, RLS enforcement, audit logging, live UI with create/edit and status changes.
-3. **Attendance System:** Geo/device-aware clock-in punch engine and timesheet export.
-4. **Leave Approval Engine:** Tiered manager approval workflows and holiday calendar calculations.
-5. **Payroll Calculation Engine:** Localized tax brackets, statutory deductions, and automated PDF payslip generation.
+3. ~~**Payroll Import & Integrity Validation:**~~ Complete — CSV register upload, deterministic findings, persisted batches/records, history/detail APIs, exception reports, and the Payroll Imports UI.
+4. **Attendance System:** Geo/device-aware clock-in punch engine and timesheet export.
+5. **Leave Approval Engine:** Tiered manager approval workflows and holiday calendar calculations.
+6. **Payroll Calculation Engine:** Localized tax brackets, statutory deductions, and automated PDF payslip generation.

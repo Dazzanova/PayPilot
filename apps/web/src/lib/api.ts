@@ -123,6 +123,50 @@ class ApiClient {
     });
     return this.handleResponse<T>(response);
   }
+
+  async uploadCsv<T>(endpoint: string, filename: string, content: string): Promise<T> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'text/csv',
+        'X-File-Name': encodeURIComponent(filename),
+      },
+      body: content,
+    });
+    return this.handleResponse<T>(response);
+  }
+
+  async download(endpoint: string): Promise<{ blob: Blob; filename: string | null }> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (response.status === 401) {
+      keycloak.clearToken();
+      throw new ApiError('Session expired', 401, 'SESSION_EXPIRED');
+    }
+
+    if (!response.ok) {
+      let message = 'Download failed';
+      let code: string | undefined;
+      try {
+        const data = (await response.json()) as ApiResponse<unknown>;
+        message = data.error?.message ?? message;
+        code = data.error?.code;
+      } catch {
+        // Non-JSON error response.
+      }
+      throw new ApiError(message, response.status, code);
+    }
+
+    const disposition = response.headers.get('Content-Disposition') ?? '';
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? null;
+    return { blob: await response.blob(), filename };
+  }
 }
 
 export const api = new ApiClient();

@@ -22,6 +22,7 @@
     "db:status": "prisma migrate status",
     "provision:user": "tsx scripts/provision-dev-user.ts",
     "seed:dev": "tsx scripts/seed-dev-data.ts",
+    "purge:payroll-imports": "tsx scripts/purge-payroll-imports.ts",
     "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
     "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web",
     "test:integration": "npm run test:integration --workspace=apps/api"

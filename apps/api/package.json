@@ -9,8 +9,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --project tsconfig.build.json --noEmit",
     "typecheck:tests": "tsc --project tsconfig.test.json",
-    "test": "NODE_ENV=test tsx --test src/**/*.test.ts",
-    "test:integration": "NODE_ENV=test RUN_DB_INTEGRATION=1 tsx --test src/**/*.test.ts"
+    "test": "NODE_ENV=test tsx --test \"src/**/*.test.ts\"",
+    "test:integration": "NODE_ENV=test RUN_DB_INTEGRATION=1 tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
