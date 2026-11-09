@@ -1,234 +1,181 @@
-import React, { useState, useMemo } from 'react';
-import {
-  CalendarOff,
-  Plus,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-} from 'lucide-react';
-import { mockLeaveRequests } from '../data/mockData';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Calendar, Clock, CheckCircle, XCircle, Plus, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
-import { DemoDisclaimer } from '../components/ui/DemoDisclaimer';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Modal } from '../components/ui/Modal';
+import { ApiError } from '../lib/api';
+import { createLeaveRequest, listLeaveRequests, reviewLeaveRequest } from '../lib/leave';
+import { useAuth } from '../contexts/AuthContext';
 import { formatDate } from '../lib/utils';
-import { LeaveStatus } from '../types';
+import type { LeaveListResult, LeaveStatus, LeaveType } from '../types';
+
+const LEAVE_TYPES: LeaveType[] = ['ANNUAL', 'SICK', 'CASUAL', 'MATERNITY', 'PATERNITY', 'UNPAID', 'BEREAVEMENT'];
 
 export const LeavePage: React.FC = () => {
+  const { user } = useAuth();
+  const isHr = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'HR_MANAGER';
   const [statusFilter, setStatusFilter] = useState<'ALL' | LeaveStatus>('ALL');
-  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [data, setData] = useState<LeaveListResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [form, setForm] = useState({ leaveType: 'ANNUAL' as LeaveType, startDate: '', endDate: '', reason: '' });
 
-  const filteredRequests = useMemo(() => {
-    if (statusFilter === 'ALL') return mockLeaveRequests;
-    return mockLeaveRequests.filter((r) => r.status === statusFilter);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setForbidden(false);
+    try {
+      const result = await listLeaveRequests({ page: 1, pageSize: 100, status: statusFilter === 'ALL' ? undefined : statusFilter });
+      setData(result);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 403) setForbidden(true);
+      else setError(caught instanceof ApiError ? caught.message : 'Could not load leave requests.');
+    } finally {
+      setLoading(false);
+    }
   }, [statusFilter]);
 
-  const pendingCount = mockLeaveRequests.filter((r) => r.status === 'PENDING').length;
-  const approvedCount = mockLeaveRequests.filter((r) => r.status === 'APPROVED').length;
-  const rejectedCount = mockLeaveRequests.filter((r) => r.status === 'REJECTED').length;
+  useEffect(() => { void load(); }, [load]);
 
-  const getStatusBadge = (status: LeaveStatus) => {
-    switch (status) {
-      case 'PENDING':
-        return <Badge variant="warning" dot size="sm">Pending Review</Badge>;
-      case 'APPROVED':
-        return <Badge variant="success" dot size="sm">Approved</Badge>;
-      case 'REJECTED':
-        return <Badge variant="danger" dot size="sm">Rejected</Badge>;
-      case 'CANCELLED':
-        return <Badge variant="neutral" size="sm">Cancelled</Badge>;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await createLeaveRequest(form);
+      setOpen(false);
+      setForm({ leaveType: 'ANNUAL', startDate: '', endDate: '', reason: '' });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not submit leave request.');
+    } finally {
+      setSaving(false);
     }
   };
 
+  const review = async (id: string, action: 'approve' | 'reject') => {
+    setReviewing(`${id}:${action}`);
+    setError(null);
+    try {
+      await reviewLeaveRequest(id, action);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Review action failed.');
+    } finally {
+      setReviewing(null);
+    }
+  };
+
+  const getStatusBadge = (status: LeaveStatus) => {
+    switch (status) {
+      case 'APPROVED': return <Badge variant="success" dot size="sm">Approved</Badge>;
+      case 'PENDING': return <Badge variant="warning" dot size="sm">Pending</Badge>;
+      case 'REJECTED': return <Badge variant="danger" dot size="sm">Rejected</Badge>;
+      case 'CANCELLED': return <Badge variant="neutral" size="sm">Cancelled</Badge>;
+      default: return <Badge variant="neutral" size="sm">{status}</Badge>;
+    }
+  };
+
+  if (forbidden) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="p-3 bg-rose-50 text-rose-500 rounded-full mb-3"><ShieldAlert className="w-6 h-6" /></div>
+        <h2 className="text-sm font-semibold text-slate-800">Access restricted</h2>
+        <p className="text-xs text-slate-500 mt-1">You don’t have access to leave requests.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <DemoDisclaimer moduleName="leave management" />
-
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Leave Requests & Approvals</h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Track annual leaves, sick days, family leaves, and manager approval queues.
-          </p>
+          <h2 className="text-xl font-bold text-slate-900">Leave Requests</h2>
+          <p className="text-xs text-slate-500 mt-1">Submit time-off requests and review pending approvals.</p>
         </div>
-        <Button
-          variant="primary"
-          icon={<Plus className="w-4 h-4" />}
-          onClick={() => setShowApplyModal(true)}
-        >
-          Request Time Off
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" icon={<RefreshCw className="w-4 h-4" />} onClick={() => void load()} disabled={loading}>Refresh</Button>
+          <Button icon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}>New Leave Request</Button>
+        </div>
       </div>
 
-      {/* Status KPI Counters */}
+      {error && <div className="px-3 py-2 rounded-lg text-xs border bg-rose-50 border-rose-200 text-rose-700">{error}</div>}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card
-          className={`p-4 cursor-pointer transition-all ${
-            statusFilter === 'PENDING' ? 'ring-2 ring-amber-500 bg-amber-50/20' : ''
-          }`}
-          onClick={() => setStatusFilter(statusFilter === 'PENDING' ? 'ALL' : 'PENDING')}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Awaiting Decision</span>
-            <Clock className="w-4 h-4 text-amber-500" />
-          </div>
-          <p className="text-2xl font-bold text-amber-600 mt-2">{pendingCount}</p>
-          <span className="text-[11px] text-slate-400 mt-1 block">Requires manager review</span>
-        </Card>
-
-        <Card
-          className={`p-4 cursor-pointer transition-all ${
-            statusFilter === 'APPROVED' ? 'ring-2 ring-emerald-500 bg-emerald-50/20' : ''
-          }`}
-          onClick={() => setStatusFilter(statusFilter === 'APPROVED' ? 'ALL' : 'APPROVED')}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Approved Requests</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <p className="text-2xl font-bold text-emerald-600 mt-2">{approvedCount}</p>
-          <span className="text-[11px] text-slate-400 mt-1 block">Scheduled for calendar sync</span>
-        </Card>
-
-        <Card
-          className={`p-4 cursor-pointer transition-all ${
-            statusFilter === 'REJECTED' ? 'ring-2 ring-rose-500 bg-rose-50/20' : ''
-          }`}
-          onClick={() => setStatusFilter(statusFilter === 'REJECTED' ? 'ALL' : 'REJECTED')}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Rejected Requests</span>
-            <XCircle className="w-4 h-4 text-rose-500" />
-          </div>
-          <p className="text-2xl font-bold text-rose-600 mt-2">{rejectedCount}</p>
-          <span className="text-[11px] text-slate-400 mt-1 block">Historical rejected applications</span>
-        </Card>
+        <Card className="p-4"><div className="flex items-center gap-2 text-amber-600"><Clock className="w-4 h-4" /><span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Pending</span></div><p className="text-2xl font-bold text-slate-900 mt-2">{data?.summary.pending ?? 0}</p></Card>
+        <Card className="p-4"><div className="flex items-center gap-2 text-emerald-600"><CheckCircle className="w-4 h-4" /><span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Approved</span></div><p className="text-2xl font-bold text-slate-900 mt-2">{data?.summary.approved ?? 0}</p></Card>
+        <Card className="p-4"><div className="flex items-center gap-2 text-rose-600"><XCircle className="w-4 h-4" /><span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Rejected</span></div><p className="text-2xl font-bold text-slate-900 mt-2">{data?.summary.rejected ?? 0}</p></Card>
       </div>
 
-      {/* Leave Requests Table */}
       <Card>
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-800">
-              Applications ({filteredRequests.length})
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setStatusFilter('ALL')}
-              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
-                statusFilter === 'ALL'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('PENDING')}
-              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
-                statusFilter === 'PENDING'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              Pending
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('APPROVED')}
-              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
-                statusFilter === 'APPROVED'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              Approved
-            </button>
-          </div>
+          <div className="flex items-center gap-2 text-slate-600"><Calendar className="w-4 h-4" /><span className="text-xs font-semibold">Leave requests</span></div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'ALL' | LeaveStatus)} className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700">
+            <option value="ALL">All Statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
         </div>
-
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Employee</TableHead>
-                <TableHead>Department</TableHead>
-                <TableHead>Leave Type</TableHead>
-                <TableHead>Dates</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Reviewer</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRequests.map((req) => (
-                <TableRow key={req.id}>
-                  <TableCell>
-                    <div>
-                      <div className="font-semibold text-slate-900 text-xs">
-                        {req.employeeName}
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        {req.employeeNumber}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-600">
-                    {req.departmentName}
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-[11px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                      {req.leaveType}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-700">
-                    {formatDate(req.startDate)} - {formatDate(req.endDate)}
-                  </TableCell>
-                  <TableCell className="text-xs font-semibold text-slate-800">
-                    {req.totalDays} {req.totalDays === 1 ? 'day' : 'days'}
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-500 max-w-xs truncate">
-                    {req.reason}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(req.status)}</TableCell>
-                  <TableCell className="text-xs text-slate-600">
-                    {req.reviewedBy || '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {loading && !data ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-xs text-slate-500"><Loader2 className="w-4 h-4 animate-spin" /> Loading leave requests…</div>
+          ) : !data || data.requests.length === 0 ? (
+            <EmptyState icon={<Calendar className="w-6 h-6" />} title="No leave requests" description="No requests match the current filter." className="m-4" />
+          ) : (
+            <Table>
+              <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Type</TableHead><TableHead>Dates</TableHead><TableHead>Days</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {data.requests.map((request) => (
+                  <TableRow key={request.id}>
+                    <TableCell><div><p className="text-xs font-semibold text-slate-800">{request.employeeName}</p><p className="text-[10px] text-slate-400">{request.employeeNumber}</p></div></TableCell>
+                    <TableCell className="text-xs text-slate-600">{request.leaveType}</TableCell>
+                    <TableCell className="text-xs text-slate-600">{formatDate(request.startDate)} – {formatDate(request.endDate)}</TableCell>
+                    <TableCell className="text-xs text-slate-600">{request.totalDays}</TableCell>
+                    <TableCell>{getStatusBadge(request.status)}</TableCell>
+                    <TableCell className="text-right">
+                      {request.status === 'PENDING' && isHr ? (
+                        <div className="inline-flex gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => void review(request.id, 'approve')} disabled={!!reviewing}>{reviewing === `${request.id}:approve` ? '…' : 'Approve'}</Button>
+                          <Button size="sm" variant="ghost" onClick={() => void review(request.id, 'reject')} disabled={!!reviewing}>{reviewing === `${request.id}:reject` ? '…' : 'Reject'}</Button>
+                        </div>
+                      ) : <span className="text-[11px] text-slate-400">—</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Demo Modal */}
-      {showApplyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200">
-            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
-              <CalendarOff className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900">Leave Application Form (Demo)</h3>
-            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              Workflow multi-step approval rules, entitlement balance validation, and automated calendar invitations are scheduled for the leave workflow increment.
-            </p>
-            <div className="mt-5 flex justify-end">
-              <Button variant="primary" size="sm" onClick={() => setShowApplyModal(false)}>
-                Dismiss
-              </Button>
-            </div>
+      <Modal open={open} onClose={() => setOpen(false)} title="New Leave Request">
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Leave Type</label>
+            <select value={form.leaveType} onChange={(e) => setForm({ ...form, leaveType: e.target.value as LeaveType })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2">
+              {LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
           </div>
-        </div>
-      )}
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-xs font-medium text-slate-700 mb-1">Start Date</label><input required type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2" /></div>
+            <div><label className="block text-xs font-medium text-slate-700 mb-1">End Date</label><input required type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2" /></div>
+          </div>
+          <div><label className="block text-xs font-medium text-slate-700 mb-1">Reason</label><textarea required minLength={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2" rows={3} /></div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Submitting…' : 'Submit Request'}</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

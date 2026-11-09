@@ -246,3 +246,45 @@ export interface PayrollImportFindingsResult {
   findings: PayrollImportFinding[];
   pagination: Pagination;
 }
+
+export interface AttendanceRecordDto {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  departmentName: string | null;
+  workDate: string;
+  status: AttendanceStatus;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  notes: string | null;
+}
+
+export interface AttendanceListResult {
+  records: AttendanceRecordDto[];
+  pagination: Pagination;
+  summary: { present: number; remote: number; halfDay: number; onLeave: number; absent: number };
+}
+
+export interface LeaveRequestDto {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  departmentName: string | null;
+  leaveType: LeaveType;
+  startDate: string;
+  endDate: string;
+  totalDays: string;
+  reason: string;
+  status: LeaveStatus;
+  reviewedByEmail: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface LeaveListResult {
+  requests: LeaveRequestDto[];
+  pagination: Pagination;
+  summary: { pending: number; approved: number; rejected: number; cancelled: number };
+}
