@@ -14,11 +14,12 @@
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
+    "@prometheus-io/client": "^0.16.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "zod": "^3.24.2",
-    "jose": "5.9.6"
+    "jose": "5.9.6",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
