@@ -2725,4 +2725,165 @@ If `gh auth status` succeeds and the remote permits it, push the branch and open
 
 ## Execution notes
 
-(Filled in during execution with actual commands, results, and remaining issues.)
+Executed on branch `feat/payroll-import-validation` on 2026-11-07 through 2026-11-09.
+Fourteen commits sit on top of `main` (`9f91d0c`):
+
+| Commit | Purpose |
+|---|---|
+| `af07b7d` | Design spec |
+| `8347165` | Implementation plan |
+| `b20c5fb` | Prisma enums/models, migration, RLS policies |
+| `eba556a` | Domain types, RFC 4180 parser, parser tests |
+| `bdd3206` | Deterministic validation engine and tests |
+| `9c17773` | Safe exception-report CSV builder and tests |
+| `5340e9f` | Private file storage, `.gitignore`, `.env.example` |
+| `48f412d` | DTOs, query schemas, tenant-scoped service |
+| `0668f44` | Router, CSV response support, 413 mapping, mount |
+| `cd7f5c0` | Attach source row numbers to row-level findings |
+| `fb54381` | PostgreSQL integration suite (26 tests) |
+| `36dd6d3` | Web types and authenticated upload/download client |
+| `b36c642` | Payroll Imports history/detail pages and navigation |
+| `dbded30` | Retention purge script and README documentation |
+
+### Automated verification
+
+Run from the repository root on the committed tree:
+
+```text
+npm run prisma:validate   -> The schema at prisma/schema.prisma is valid
+npm run db:status         -> 6 migrations found; Database schema is up to date!
+npm run typecheck         -> API and web typechecks pass
+npm run typecheck:tests --workspace=apps/api -> pass
+npm run build             -> API and web builds pass
+npm test                  -> 84 tests, 84 pass, 0 fail
+npm run test:integration  -> 155 tests, 155 pass, 0 fail
+npm run purge:payroll-imports -> Purged 0 expired payroll import file(s).
+```
+
+The payroll-import feature contributes 33 unit tests (`csv` 7, `validation` 16,
+`export` 6, `storage` 4) and 26 PostgreSQL integration tests.
+
+Migration note: `prisma migrate dev` fails with `P3014` because the migrator role
+does not own `CREATEDB`. The migration was generated with `prisma migrate diff`
+and applied with `prisma migrate deploy`; `db:status` confirms it is applied.
+
+RLS was verified directly in PostgreSQL after the migration:
+
+```text
+imported_payroll_records|t|t
+payroll_import_batches|t|t
+validation_findings|t|t
+```
+
+Each table has `ENABLE` and `FORCE` row-level security, tenant `SELECT`/`INSERT`
+policies for `paypilot_app`, an `UPDATE` policy only on batches, and permissive
+`paypilot_migrator` policies for migrations and the retention purge. The runtime
+role has no delete policy on imports.
+
+The integration suite covers: valid import and detail/records/findings/history,
+cross-tenant 404s, unknown employees (no auto-create), inactive employees as
+warnings only, arithmetic mismatches with expected/actual, precision, mixed
+currency/period, duplicate employee periods, unexpected columns, file-level
+`FAILED` batches, size limit (413), severity/validity filters, duplicate imports
+(409), failed-file retry, concurrent identical uploads (one 201 and one 409),
+transaction rollback, audit metadata without salaries/names, RLS reads/inserts/
+deletes, cross-tenant employee resolution, RBAC 401/403, exception-report
+headers and formula neutralization, pagination caps, and status filtering.
+
+### API walkthrough with real Keycloak authentication
+
+The demo organization `paypilot-demo` started with no employees, so two
+walkthrough employees were created through the authenticated API
+(`PP-1001`, `PP-1002`) and three registers were uploaded with a real token
+obtained through the Keycloak authorization-code + PKCE flow.
+
+| Upload | Result |
+|---|---|
+| Valid two-row register | `201`, `COMPLETED`, 2 rows, 2 valid, 0 invalid, 0 errors, `INR` |
+| Error register (mismatch, unknown employee, mixed currency, precision) | `201`, `COMPLETED`, 3 rows, 0 valid, 3 invalid, 4 errors |
+| Invalid header | `201`, `FAILED`, 0 rows, `INVALID_HEADER` |
+
+Findings returned for the error batch:
+
+```text
+1 | ERROR | ARITHMETIC_MISMATCH    |                  | 62500.00 | 63000.00
+2 | ERROR | UNKNOWN_EMPLOYEE       | employee_number  |          | PP-9999
+3 | ERROR | INCONSISTENT_CURRENCY  | currency         | INR      | USD
+3 | ERROR | UNSUPPORTED_PRECISION  | gross_pay        | 0.00     | 1.234
+```
+
+The exception report returned `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="payroll-exceptions-<id>.csv"`, and
+`Cache-Control: no-store`. Requesting the same batch as `manager@paypilot.local`
+returned `403 INSUFFICIENT_PERMISSIONS`.
+
+### Browser walkthrough
+
+No Playwright/Puppeteer dependency was added. The walkthrough used the installed
+headless Google Chrome over the Chrome DevTools Protocol, signing in through the
+real Keycloak form. All ten checks passed:
+
+1. Unauthenticated `/payroll/imports` redirects to `/login`.
+2. Keycloak sign-in returns to the app.
+3. Admin sees the Payroll Imports page and 3 history rows.
+4. Status filter narrows history to the `FAILED` batch.
+5. Detail page shows all four findings with expected/actual values.
+6. Severity filter returns the four `ERROR` findings.
+7. Records tab renders resolved and unresolved employee rows.
+8. Exception Report button downloads a CSV from the UI.
+9. Unknown batch id shows the "Import not found" state.
+10. `manager@paypilot.local` sees the "Access restricted" state.
+
+Screenshots (kept outside the repository, not committed):
+
+```text
+/tmp/opencode/walkthrough/01-imports-history.png
+/tmp/opencode/walkthrough/02-imports-filtered-failed.png
+/tmp/opencode/walkthrough/03-import-detail-findings.png
+/tmp/opencode/walkthrough/04-findings-error-filter.png
+/tmp/opencode/walkthrough/05-import-records-tab.png
+/tmp/opencode/walkthrough/06-import-not-found.png
+/tmp/opencode/walkthrough/07-manager-restricted.png
+```
+
+### Deviations and fixes during execution
+
+- The API test script now quotes its glob (`tsx --test "src/**/*.test.ts"`) so
+  nested feature tests are discovered; before this, the new suites were silently
+  skipped.
+- The first integration run exposed a real bug: row-level findings were stored
+  with a `null` `rowNumber`. Fixed in `cd7f5c0`; every row-level finding now
+  carries its source row and the integration test asserts it.
+- Duplicate detection is scoped to `COMPLETED` batches so a `FAILED` file can be
+  corrected and retried. Concurrent identical uploads are serialized with a
+  transaction-scoped advisory lock keyed by organization and file hash.
+- `PROCESSING` exists in the enum for forward compatibility, but the pipeline is
+  synchronous: a batch is persisted as `COMPLETED` or `FAILED` before the
+  response. No request can currently observe `PROCESSING`.
+- The 5 MB limit is enforced by the body parser before storage, so oversized
+  uploads are rejected with `413 PAYLOAD_TOO_LARGE` and leave no batch or file.
+- Formula-injection neutralization prefixes cells beginning with `=`, `+`, `-`,
+  `@`, tab, or carriage return with a single quote.
+
+### Residual risks and open items
+
+- The retention purge script was exercised (`0` expired files) but no test
+  creates a genuinely expired batch and asserts that the file disappears while
+  metadata survives. A dedicated integration test would close this gap.
+- The history table needs horizontal scrolling at 1440 px because it has nine
+  columns; the Actions button sits off-screen until scrolled. Functional but
+  worth tightening in a follow-up.
+- Imported records are validation input only. Nothing in this milestone writes
+  to `payroll_runs` or `payslips`, and there is no reconciliation with finalized
+  payroll yet.
+- The browser walkthrough used the local demo organization. The walkthrough
+  fixtures (`PP-1001`, `PP-1002`, and three import batches) were left in the
+  development database so the reviewer can reproduce the UI; they are not part
+  of the repository. To remove them, delete the batches and the two employees
+  with the migrator connection, then delete the `payroll_import.created` audit
+  rows for those batch ids.
+- The working tree contained unrelated, in-progress attendance/leave work while
+  these notes were written. It was not modified or committed as part of this
+  milestone.
+- No production-readiness claim is made. This is a reviewed development
+  milestone, not a deployment sign-off.
