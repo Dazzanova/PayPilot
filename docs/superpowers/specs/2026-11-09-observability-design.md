@@ -1,6 +1,6 @@
 # PayPilot Observability Design — Metrics, Prometheus, Grafana
 
-**Status:** Draft for review 2026-11-09
+**Status:** Approved 2026-11-09
 **Branch:** `feat/observability` (from `main`)
 **Scope:** Metrics-only observability for the host-run API, plus Prometheus and Grafana in the existing local Docker Compose stack.
 
@@ -149,7 +149,9 @@ The middleware must not throw if the response has already ended or if a listener
 **Commit semantics.** Add a helper such as:
 
 ```ts
-export function onResponseSuccess(res: Response, callback: () => void): void {
+export function onRequestSuccess(req: Request, callback: () => void): void {
+  const res = req.res;
+  if (!res) return;
   res.on('finish', () => {
     if (res.statusCode >= 200 && res.statusCode < 400) {
       callback();
@@ -158,11 +160,11 @@ export function onResponseSuccess(res: Response, callback: () => void): void {
 }
 ```
 
-Route handlers call it after the service call and before returning the response, for example:
+Route handlers call it after the service call and before returning the response. `tenantRouteHandler` passes `(req, tx)` to the handler, so the helper uses the Express `req.res` reference rather than changing the handler signature:
 
 ```ts
 const record = await punchAttendance(tx, organizationId, userId, input);
-onResponseSuccess(res, () => attendancePunchesTotal.inc({ action: input.action }));
+onRequestSuccess(req, () => attendancePunchesTotal.inc({ action: input.action }));
 return { body: { success: true, data: { record } } };
 ```
 
