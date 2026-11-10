@@ -100,9 +100,24 @@ const KNOWN_METHODS = new Set([
   'OPTIONS',
 ]);
 
-export function normalizeMethod(method: string): string {
+export function normalizeMethod(method: string | undefined): string {
+  if (!method) return 'OTHER';
   const upper = method.toUpperCase();
   return KNOWN_METHODS.has(upper) ? upper : 'OTHER';
+}
+
+const DYNAMIC_SEGMENT_PATTERNS = [
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^\d+$/,
+  /^[0-9a-f]{16,}$/i,
+];
+
+function sanitizeMountSegment(segment: string): string {
+  if (segment.includes('@')) return ':param';
+  if (DYNAMIC_SEGMENT_PATTERNS.some((pattern) => pattern.test(segment))) {
+    return ':param';
+  }
+  return segment;
 }
 
 export function normalizeRoute(req: Request): string {
@@ -111,19 +126,30 @@ export function normalizeRoute(req: Request): string {
     return 'unmatched';
   }
 
-  const combined = `${req.baseUrl ?? ''}/${routePath}`;
-  const normalized = combined.replace(/\/{2,}/g, '/');
-  if (normalized.length > 1 && normalized.endsWith('/')) {
-    return normalized.slice(0, -1);
-  }
-  return normalized || '/';
+  const patternSegments = routePath.split('/').filter(Boolean);
+  const requestSegments = (req.originalUrl ?? req.url ?? '')
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean);
+
+  const mountSegmentCount = Math.max(
+    0,
+    requestSegments.length - patternSegments.length
+  );
+  const mountSegments = requestSegments
+    .slice(0, mountSegmentCount)
+    .map(sanitizeMountSegment);
+
+  const segments = [...mountSegments, ...patternSegments];
+  return segments.length > 0 ? `/${segments.join('/')}` : '/';
 }
 
 export function isMetricsExcludedPath(pathName: string): boolean {
+  const normalized = pathName.toLowerCase();
   return (
-    pathName === '/metrics' ||
-    pathName === '/api/health' ||
-    pathName.startsWith('/api/health/')
+    normalized === '/metrics' ||
+    normalized === '/api/health' ||
+    normalized.startsWith('/api/health/')
   );
 }
 
@@ -186,7 +212,7 @@ export function onRequestSuccess(req: Request, callback: () => void): void {
   const res = req.res;
   if (!res) return;
 
-  res.on('finish', () => {
+  res.once('finish', () => {
     if (res.statusCode >= 200 && res.statusCode < 400) {
       callback();
     }
@@ -208,3 +234,5 @@ export function metricsHandler(
     })
     .catch(next);
 }
+
+initializeBusinessMetricSeries();
