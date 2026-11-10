@@ -728,6 +728,8 @@ git add apps/api/src/lib/metrics.ts apps/api/src/lib/metrics.test.ts
 git commit -m "feat(api): add metrics registry, HTTP middleware, and business helpers"
 ```
 
+> **Execution note (`da046e6`):** Code review found that Express resets `req.baseUrl` to `""` while an error unwinds to the app-level error handler, so the original `baseUrl`-based `normalizeRoute` labeled every 4xx/5xx without its mount prefix. The committed implementation reconstructs the label from `req.originalUrl` and the matched route pattern, strips query strings, and sanitizes dynamic-looking mount segments (UUID, numeric, 16+ hex, email) to `:param`. It also lowercases the exclusion check, accepts `string | undefined` in `normalizeMethod`, uses `res.once('finish')` in `onRequestSuccess`, and self-initializes the bounded business series at module load. The tests cover the error-unwinding, param-mount, query-string, and case-insensitive cases. Use the committed `metrics.ts` and `metrics.test.ts` as the source of truth for later tasks.
+
 ---
 
 ## Task 5: Add the non-overlapping database probe

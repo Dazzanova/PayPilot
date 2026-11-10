@@ -112,6 +112,9 @@ const DYNAMIC_SEGMENT_PATTERNS = [
   /^[0-9a-f]{16,}$/i,
 ];
 
+// Best-effort: UUID, numeric, 16+ hex, and email-like mount segments become
+// :param. Slug mounts are not detected, so keep router mounts static or add a
+// dedicated captured base if a slug mount is introduced.
 function sanitizeMountSegment(segment: string): string {
   if (segment.includes('@')) return ':param';
   if (DYNAMIC_SEGMENT_PATTERNS.some((pattern) => pattern.test(segment))) {
@@ -120,6 +123,11 @@ function sanitizeMountSegment(segment: string): string {
   return segment;
 }
 
+// Reconstruct the label from the request path and the matched route pattern
+// rather than req.baseUrl: Express resets baseUrl to '' while an error unwinds
+// to the app-level error handler. This assumes each pattern segment consumes
+// exactly one path segment; optional params and wildcards would need a captured
+// baseUrl instead.
 export function normalizeRoute(req: Request): string {
   const routePath: unknown = req.route?.path;
   if (typeof routePath !== 'string') {
@@ -235,4 +243,7 @@ export function metricsHandler(
     .catch(next);
 }
 
+// Pre-create the bounded business series so dashboards show zero instead of a
+// gap before the first event. inc(0) is idempotent, so the server bootstrap may
+// call this again safely.
 initializeBusinessMetricSeries();
