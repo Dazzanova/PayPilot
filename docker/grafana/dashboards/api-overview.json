@@ -201,7 +201,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\",status=~\"5..\"}[$__rate_interval])) / sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\"}[$__rate_interval]))) or vector(0)",
+          "expr": "(sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\",status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\"}[$__rate_interval])), 1e-9)) or vector(0)",
           "legendFormat": "5xx ratio"
         }
       ],

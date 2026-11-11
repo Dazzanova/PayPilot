@@ -146,6 +146,7 @@
         {
           "refId": "A",
           "expr": "sum by (action) (increase(paypilot_attendance_punches_total{job=\"paypilot-api\"}[$__interval]))",
+          "interval": "15s",
           "legendFormat": "{{action}}"
         }
       ],
@@ -176,6 +177,7 @@
         {
           "refId": "A",
           "expr": "sum by (leave_type) (increase(paypilot_leave_requests_created_total{job=\"paypilot-api\"}[$__interval]))",
+          "interval": "15s",
           "legendFormat": "{{leave_type}}"
         }
       ],
@@ -206,6 +208,7 @@
         {
           "refId": "A",
           "expr": "sum by (decision) (increase(paypilot_leave_reviews_total{job=\"paypilot-api\"}[$__interval]))",
+          "interval": "15s",
           "legendFormat": "{{decision}}"
         }
       ],
@@ -236,6 +239,7 @@
         {
           "refId": "A",
           "expr": "sum by (status) (increase(paypilot_payroll_imports_total{job=\"paypilot-api\"}[$__interval]))",
+          "interval": "15s",
           "legendFormat": "{{status}}"
         }
       ],
