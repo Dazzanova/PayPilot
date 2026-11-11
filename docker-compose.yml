@@ -55,6 +55,40 @@ services:
       retries: 30
       start_period: 60s
 
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    container_name: paypilot-prometheus
+    restart: unless-stopped
+    # Compose file secrets are bind-mounted with the host file's owner/mode
+    # (1000:1000, 0600), so the image's default "nobody" user cannot read the
+    # metrics token. Run as root for local development so the scrape works.
+    user: "0:0"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - paypilot-prometheus-data:/prometheus
+      - ./docker/prometheus:/etc/prometheus:ro
+    secrets:
+      - paypilot_metrics_token
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
 volumes:
   paypilot-postgres-data:
   paypilot-keycloak-data:
+  paypilot-prometheus-data:
+
+secrets:
+  paypilot_metrics_token:
+    file: ./.secrets/paypilot_metrics_token
