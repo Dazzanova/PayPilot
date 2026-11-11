@@ -3038,6 +3038,8 @@ git add docker-compose.yml docker/grafana
 git commit -m "feat(infra): provision Grafana dashboards for API and business metrics"
 ```
 
+> **Execution note (`8953c0f`, `0c72872`):** Review hardened the Grafana setup beyond the plan. `.env.example` gained the full Observability block (`HOST`, `METRICS_TOKEN_FILE`, `HOST_GID`, `PROMETHEUS_PORT`, `GRAFANA_PORT`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, token `0640` instructions) so the stack starts from a clean checkout. The datasource drops the legacy `access: proxy` and declares `prometheusType: Prometheus`; Grafana disables plugin pre-install and analytics reporting. Both dashboards are `editable: false` and cross-link to each other. API Overview uses `clamp_min` on the 5xx denominator plus `or vector(0)` (so idle windows show 0 instead of a NaN gap), scopes the `route` variable to `job="paypilot-api"`, plots CPU as `short`/cores, and uses `paypilot_nodejs_eventloop_lag_p99_seconds`. Business Activity timeseries use `increase(...[$__interval])` with `interval: "15s"` so short zooms never blank, stat panels use `graphMode: "none"`, and tables declare units/decimals. Empty `provisioning/plugins` and `provisioning/alerting` directories silence Grafana's startup provisioning errors.
+
 ---
 
 ## Task 12: Document the setup and ignore local secrets
