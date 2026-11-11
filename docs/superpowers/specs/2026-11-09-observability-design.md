@@ -285,15 +285,15 @@ secrets:
     file: ./.secrets/paypilot_metrics_token
 ```
 
-- The Compose secret is mounted at `/run/secrets/paypilot_metrics_token`, readable by the Prometheus container without loosening host file permissions.
-- The host token file stays `0600` and the `.secrets/` directory stays `0700`.
+- The Compose secret is mounted at `/run/secrets/paypilot_metrics_token`. The token file is `0640`; the Prometheus container joins the host gid (`group_add`) so its `nobody` user can read it without making the token world-readable.
+- The host token file stays `0640` and the `.secrets/` directory stays `0700`.
 - Generate the token without a trailing newline:
 
 ```bash
 mkdir -p .secrets
 chmod 700 .secrets
 printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
-chmod 600 .secrets/paypilot_metrics_token
+chmod 640 .secrets/paypilot_metrics_token
 ```
 
 ### 5.2 Scrape configuration

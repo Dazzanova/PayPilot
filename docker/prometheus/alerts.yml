@@ -15,6 +15,9 @@ groups:
           (
             sum(rate(paypilot_http_requests_total{job="paypilot-api",status=~"5.."}[5m]))
             /
+            # No clamp needed: the 5xx series is a subset of the denominator, so
+            # a non-empty numerator implies a non-zero denominator; an idle
+            # window yields an empty vector rather than a division by zero.
             sum(rate(paypilot_http_requests_total{job="paypilot-api"}[5m]))
           ) > 0.05
           and

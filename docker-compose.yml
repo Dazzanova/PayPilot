@@ -59,9 +59,12 @@ services:
     image: prom/prometheus:v3.16.0
     container_name: paypilot-prometheus
     restart: unless-stopped
-    # The secret is bind-mounted with the host file's owner/mode, so the token
-    # must be world-readable inside the container. Keep .secrets/ at 0700 so
-    # host users still cannot traverse to the file, and the token at 0644.
+    # The secret is bind-mounted with the host file's owner/mode. Keep the token
+    # at 0640 and add the host gid below so the image's "nobody" user can read
+    # it; otherwise the scrape fails with "unable to read authorization
+    # credentials" and the target goes down.
+    group_add:
+      - "${HOST_GID:-1000}"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

@@ -1688,7 +1688,7 @@ Create the local token file before starting the API:
 mkdir -p .secrets
 chmod 700 .secrets
 printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
-chmod 600 .secrets/paypilot_metrics_token
+chmod 640 .secrets/paypilot_metrics_token
 ```
 
 Smoke-test the endpoint in a background shell:
@@ -2022,6 +2022,12 @@ In `docker-compose.yml`, add the Prometheus service after `keycloak`:
     image: prom/prometheus:v3.16.0
     container_name: paypilot-prometheus
     restart: unless-stopped
+    # The secret is bind-mounted with the host file's owner/mode. Keep the token
+    # at 0640 and add the host gid below so the image's "nobody" user can read
+    # it; otherwise the scrape fails with "unable to read authorization
+    # credentials" and the target goes down.
+    group_add:
+      - "${HOST_GID:-1000}"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -2086,6 +2092,8 @@ Commit:
 git add docker-compose.yml docker/prometheus
 git commit -m "feat(infra): add Prometheus with scrape config, alerts, and rule tests"
 ```
+
+> **Execution note (`34d9328` and the follow-up permission commit):** Review found that a Compose file secret is bind-mounted with the host file's owner/mode, so the image's default `nobody` user could not read a `0600` token. The committed setup keeps the token at `0640`, keeps `.secrets/` at `0700`, and adds `group_add: ["${HOST_GID:-1000}"]` so `nobody` reads the token through the host gid without running the container as root and without making the token world-readable. The rule set also drops the unnecessary `clamp_min`, matches the DB rules with `and on (job, instance)`, and gates `PayPilotDatabaseProbeStale` on `up == 1` so it cannot fire alongside `PayPilotApiDown`. Tests add non-firing cases for `PayPilotApiDown`, zero 5xx series, fresh probe timestamps, and the stale-while-down guard, and use a valid latency histogram. Document `HOST_GID` alongside `PROMETHEUS_PORT` in Task 12.
 
 ---
 
@@ -3059,7 +3067,7 @@ HOST=0.0.0.0
 # resolve from the repository root. Generate it with:
 #   mkdir -p .secrets && chmod 700 .secrets
 #   printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
-#   chmod 600 .secrets/paypilot_metrics_token
+#   chmod 640 .secrets/paypilot_metrics_token
 METRICS_TOKEN_FILE=./.secrets/paypilot_metrics_token
 ```
 
@@ -3103,7 +3111,7 @@ Grafana    (127.0.0.1:3000) -> provisioned datasource + two dashboards
 mkdir -p .secrets
 chmod 700 .secrets
 printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
-chmod 600 .secrets/paypilot_metrics_token
+chmod 640 .secrets/paypilot_metrics_token
 ```
 
 `.secrets/` is git-ignored. The API reads the token from `METRICS_TOKEN_FILE`; Prometheus reads the same file through a Compose secret at `/run/secrets/paypilot_metrics_token`. Rotating the token requires restarting the API; Prometheus picks up the new file on its next scrape.
@@ -3329,7 +3337,7 @@ docker-compose exec prometheus /bin/promtool test rules /etc/prometheus/tests/al
 
 ```bash
 printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
-chmod 600 .secrets/paypilot_metrics_token
+chmod 640 .secrets/paypilot_metrics_token
 ```
 
 2. Restart the API so it reloads the file.
