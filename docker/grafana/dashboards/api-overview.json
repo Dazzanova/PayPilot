@@ -2,6 +2,7 @@
   "id": null,
   "uid": "paypilot-api-overview",
   "title": "PayPilot API Overview",
+  "editable": false,
   "tags": ["paypilot", "api"],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -9,6 +10,15 @@
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
   "annotations": { "list": [] },
+  "links": [
+    {
+      "title": "Business Activity",
+      "url": "/d/paypilot-business-activity",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
   "templating": {
     "list": [
       {
@@ -16,7 +26,7 @@
         "label": "Route",
         "type": "query",
         "datasource": { "type": "prometheus", "uid": "paypilot-prometheus" },
-        "query": "label_values(paypilot_http_requests_total, route)",
+        "query": "label_values(paypilot_http_requests_total{job=\"paypilot-api\"}, route)",
         "includeAll": true,
         "multi": true,
         "refresh": 2,
@@ -191,7 +201,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\",status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\"}[$__rate_interval])), 1e-9)",
+          "expr": "(sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\",status=~\"5..\"}[$__rate_interval])) / sum(rate(paypilot_http_requests_total{job=\"paypilot-api\",route=~\"$route\"}[$__rate_interval]))) or vector(0)",
           "legendFormat": "5xx ratio"
         }
       ],
@@ -255,7 +265,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "In-flight requests",
+      "title": "In-flight requests (trend)",
       "datasource": { "type": "prometheus", "uid": "paypilot-prometheus" },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
       "targets": [
@@ -292,12 +302,12 @@
         {
           "refId": "A",
           "expr": "rate(paypilot_process_cpu_seconds_total{job=\"paypilot-api\"}[$__rate_interval])",
-          "legendFormat": "CPU"
+          "legendFormat": "CPU (cores)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "linear",
@@ -351,7 +361,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "paypilot_nodejs_eventloop_lag_seconds{job=\"paypilot-api\"}",
+          "expr": "paypilot_nodejs_eventloop_lag_p99_seconds{job=\"paypilot-api\"}",
           "legendFormat": "lag"
         }
       ],
@@ -477,7 +487,7 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto", "filterable": true } },
+        "defaults": { "unit": "reqps", "decimals": 3, "custom": { "align": "auto", "filterable": true } },
         "overrides": []
       },
       "options": { "showHeader": true }
