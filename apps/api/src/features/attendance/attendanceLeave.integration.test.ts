@@ -15,6 +15,9 @@ import { errorHandler } from '../../middleware/errorHandler';
 import { AuthenticatedRequest } from '../../types/auth';
 import { createAttendanceRouter } from './attendance.routes';
 import { createLeaveRouter } from '../leave/leave.routes';
+import { createHttpMetricsMiddleware, metricsHandler } from '../../lib/metrics';
+import { createMetricsAuthMiddleware } from '../../lib/metricsAuth';
+import { healthRouter } from '../../routes/health.routes';
 
 const dbIntegration = process.env.RUN_DB_INTEGRATION === '1';
 const describeDb = dbIntegration ? describe : describe.skip;
@@ -23,6 +26,8 @@ const describeDb = dbIntegration ? describe : describe.skip;
 // 8888/9999, so this suite owns aaaa/bbbb and never shares mutable rows.
 const orgA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const orgB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+const metricsToken = 'integration-metrics-token';
 
 const userHrA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
 const userManagerA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02';
@@ -99,6 +104,20 @@ async function api(
   });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null, text };
+}
+
+async function fetchMetrics(authorization?: string) {
+  const response = await fetch(`${baseUrl}/metrics`, {
+    headers: authorization ? { authorization } : {},
+  });
+  return { status: response.status, text: await response.text() };
+}
+
+function metricValue(text: string, sample: string): number {
+  const line = text
+    .split('\n')
+    .find((candidate) => candidate.startsWith(`${sample} `));
+  return line ? Number(line.slice(sample.length + 1)) : 0;
 }
 
 async function createEmployee(
@@ -184,9 +203,23 @@ before(async () => {
   ).id;
 
   const app = express();
+
+  // /metrics must bypass the HTTP metrics middleware and CORS.
+  app.get('/metrics', createMetricsAuthMiddleware(metricsToken), metricsHandler);
+  app.use(createHttpMetricsMiddleware());
   app.use(express.json());
+  app.use('/api/health', healthRouter);
   app.use('/api/attendance', createAttendanceRouter(fakeAuth));
   app.use('/api/leave-requests', createLeaveRouter(fakeAuth));
+  app.use((req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: `Cannot ${req.method} ${req.originalUrl}`,
+      },
+    });
+  });
   app.use(errorHandler);
 
   await new Promise<void>((resolve) => {
@@ -614,5 +647,80 @@ describeDb('Attendance and leave integration', () => {
       })),
       2
     );
+  });
+
+  describe('metrics endpoint', () => {
+    it('requires a bearer token', async () => {
+      const missing = await fetchMetrics();
+      assert.equal(missing.status, 401);
+      assert.equal(missing.text.includes('paypilot_http_requests_total'), false);
+
+      const wrong = await fetchMetrics('Bearer wrong-token');
+      assert.equal(wrong.status, 401);
+    });
+
+    it('increments business counters only for committed successful punches', async () => {
+      const before = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(before.status, 200);
+      const baseline = metricValue(
+        before.text,
+        'paypilot_attendance_punches_total{action="in"}'
+      );
+
+      const punch = await api('/api/attendance/punch', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: { action: 'in', workDate: '2027-01-15' },
+      });
+      assert.equal(punch.status, 200, punch.text);
+
+      const afterSuccess = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          afterSuccess.text,
+          'paypilot_attendance_punches_total{action="in"}'
+        ),
+        baseline + 1
+      );
+
+      const failed = await api('/api/attendance/punch', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: { action: 'in', workDate: '2026-02-30' },
+      });
+      assert.equal(failed.status, 400);
+
+      const afterFailure = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          afterFailure.text,
+          'paypilot_attendance_punches_total{action="in"}'
+        ),
+        baseline + 1
+      );
+    });
+
+    it('excludes health routes and labels unknown routes as unmatched', async () => {
+      await api('/api/health');
+      await api('/api/health/db');
+
+      const missing = await api('/api/does-not-exist');
+      assert.equal(missing.status, 404);
+
+      const metrics = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(metrics.text.includes('route="/api/health'), false);
+      assert.match(metrics.text, /route="unmatched"/);
+      assert.equal(metrics.text.includes('/api/does-not-exist'), false);
+    });
+
+    it('never labels raw URLs, UUIDs, or query strings', async () => {
+      await api(`/api/attendance?employeeId=${employeeA2}&search=secret`, {
+        user: userEmployeeA1,
+      });
+
+      const metrics = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(metrics.text.includes(employeeA2), false);
+      assert.equal(metrics.text.includes('search=secret'), false);
+    });
   });
 });
