@@ -3428,6 +3428,8 @@ git add .gitignore .env.example README.md docs/OBSERVABILITY.md
 git commit -m "docs: document observability setup, metrics, dashboards, and alerts"
 ```
 
+> **Execution note (`769038e`, `fedefc0`, `1ddac6e`):** Review closed several onboarding and operational gaps. `npm run infra:up` now starts only `postgres` and `keycloak` (Compose validates the whole file, so `.env` still needs `GRAFANA_ADMIN_PASSWORD`), and §5.3 links to the full observability start. The firewall guidance is Linux-only, targets the Compose network (`payroll_default`) rather than the default `bridge` network, states that `iptables` rules are session-only, and qualifies the bridge-gateway alternative because it breaks `localhost:4000` and the Vite proxy. Docs now include `HOST_GID`, the macOS `stat -f` variant, `docker-compose restart prometheus` after rule edits (the lifecycle API is disabled), the read-only datasource "Test" flow, configurable ports, and the Grafana first-init password behavior. `apps/api/src/lib/metrics.ts` and `docker/prometheus/alerts.yml` carry one-line pointers to the catalog.
+
 ---
 
 ## Task 13: Full verification and pull request
