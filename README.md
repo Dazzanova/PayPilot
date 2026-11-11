@@ -209,6 +209,11 @@ Sign in at http://localhost:5173/login with the provisioned email and developmen
 | `KEYCLOAK_JWKS_URI` | Optional JWKS override; defaults to issuer `/protocol/openid-connect/certs` |
 | `KEYCLOAK_DEV_USER_PASSWORD` | Development-only password used by provisioning |
 | `VITE_API_URL`, `VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | Frontend build-time configuration |
+| `HOST` | API listen interface; `0.0.0.0` is required for Docker-hosted Prometheus |
+| `METRICS_TOKEN_FILE` | Path to the `/metrics` bearer token; relative paths resolve from the repo root |
+| `HOST_GID` | Host group id that owns the metrics token; Prometheus joins this group via `group_add` to read the Compose secret |
+| `PROMETHEUS_PORT`, `GRAFANA_PORT` | Localhost-bound Prometheus and Grafana ports |
+| `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` | Grafana admin login |
 
 ---
 
@@ -276,7 +281,92 @@ npm run test:integration
 
 ---
 
-## 10. API Endpoints
+## 10. Observability
+
+Prometheus and Grafana run in the local Docker Compose stack. The API runs on the host and exposes a token-protected `GET /metrics` endpoint.
+
+```text
+Host API (HOST=0.0.0.0, PORT=4000)
+  GET /metrics  ->  Bearer token required
+        ^
+        | host.docker.internal:4000
+Prometheus (127.0.0.1:9090) -> 15s scrape, 15d retention
+Grafana    (127.0.0.1:3000) -> provisioned datasource + two dashboards
+```
+
+### 10.1 Generate the metrics token
+
+```bash
+mkdir -p .secrets
+chmod 700 .secrets
+printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
+chmod 640 .secrets/paypilot_metrics_token
+```
+
+`.secrets/` is git-ignored. The API reads the token from `METRICS_TOKEN_FILE`; Prometheus reads the same file through a Compose secret at `/run/secrets/paypilot_metrics_token`. Set `HOST_GID` in `.env` to the token file's group (`stat -c '%g' .secrets/paypilot_metrics_token`) so Prometheus can read it without the token being world-readable. Rotating the token requires restarting the API; Prometheus picks up the new file on its next scrape.
+
+### 10.2 Start the stack
+
+Add `GRAFANA_ADMIN_PASSWORD` to `.env` if it is missing, then:
+
+```bash
+docker-compose up -d prometheus grafana
+```
+
+- Prometheus: <http://localhost:9090> (targets at `/targets`, alerts at `/alerts`)
+- Grafana: <http://localhost:3000> (login with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`)
+
+Both ports bind to `127.0.0.1`. Grafana anonymous access and sign-up are disabled.
+
+### 10.3 Verify `/metrics`
+
+```bash
+curl -i http://localhost:4000/metrics
+# HTTP/1.1 401 Unauthorized
+# WWW-Authenticate: Bearer
+
+curl -s -H "Authorization: Bearer $(cat .secrets/paypilot_metrics_token)" \
+  http://localhost:4000/metrics | head
+# HTTP/1.1 200 OK
+```
+
+`/metrics` is not proxied by Vite and never emits CORS headers.
+
+### 10.4 Firewall requirement
+
+Because `host.docker.internal` cannot reach a loopback-only listener, the API binds `0.0.0.0`. Restrict port 4000 to loopback and the Docker bridge subnet:
+
+```bash
+sudo iptables -N PAYPILOT_API 2>/dev/null || true
+sudo iptables -F PAYPILOT_API
+sudo iptables -A PAYPILOT_API -s 127.0.0.0/8 -j ACCEPT
+sudo iptables -A PAYPILOT_API -s 172.16.0.0/12 -j ACCEPT
+sudo iptables -A PAYPILOT_API -j DROP
+sudo iptables -I INPUT -p tcp --dport 4000 -j PAYPILOT_API
+```
+
+Adapt `172.16.0.0/12` to the actual bridge subnet from:
+
+```bash
+docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}'
+```
+
+### 10.5 Dashboards and alerts
+
+Grafana provisions two dashboards from JSON in the **PayPilot** folder:
+
+- **PayPilot API Overview** — target/DB health, request rate, 5xx ratio, latency, in-flight requests, process CPU/memory, event loop, DB probe, top routes.
+- **PayPilot Business Activity** — attendance punches, leave requests and reviews, payroll imports.
+
+Prometheus provisions five alerts: `PayPilotApiDown`, `PayPilotHigh5xxRate`, `PayPilotHighP95Latency`, `PayPilotDatabaseDown`, and `PayPilotDatabaseProbeStale`. There is no Alertmanager; firing alerts appear in the Prometheus UI and can be added to a Grafana panel.
+
+Dashboard JSON is the source of truth. UI edits are overwritten on restart. Export changes back to JSON. Changing histogram buckets requires updating dashboard and alert queries in the same change.
+
+See [docs/OBSERVABILITY.md](./docs/OBSERVABILITY.md) for the metric catalog, label policy, alert thresholds, and troubleshooting.
+
+---
+
+## 11. API Endpoints
 
 ### Public
 
@@ -329,7 +419,7 @@ The web app exposes **Payroll Imports** at `/payroll/imports` with upload, histo
 
 ---
 
-## 11. Next Implementation Milestones
+## 12. Next Implementation Milestones
 
 1. ~~**Authentication & tenant isolation:**~~ Complete — Keycloak OIDC, JWKS verification, provider-neutral identity mapping, native PostgreSQL RLS.
 2. ~~**Employee Directory CRUD:**~~ Complete — validated API, tenant-scoped service, RLS enforcement, audit logging, live UI with create/edit and status changes.
