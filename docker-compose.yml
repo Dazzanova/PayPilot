@@ -59,10 +59,9 @@ services:
     image: prom/prometheus:v3.16.0
     container_name: paypilot-prometheus
     restart: unless-stopped
-    # Compose file secrets are bind-mounted with the host file's owner/mode
-    # (1000:1000, 0600), so the image's default "nobody" user cannot read the
-    # metrics token. Run as root for local development so the scrape works.
-    user: "0:0"
+    # The secret is bind-mounted with the host file's owner/mode, so the token
+    # must be world-readable inside the container. Keep .secrets/ at 0700 so
+    # host users still cannot traverse to the file, and the token at 0644.
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

@@ -15,7 +15,7 @@ groups:
           (
             sum(rate(paypilot_http_requests_total{job="paypilot-api",status=~"5.."}[5m]))
             /
-            clamp_min(sum(rate(paypilot_http_requests_total{job="paypilot-api"}[5m])), 1e-9)
+            sum(rate(paypilot_http_requests_total{job="paypilot-api"}[5m]))
           ) > 0.05
           and
           sum(increase(paypilot_http_requests_total{job="paypilot-api"}[5m])) >= 50
@@ -44,7 +44,7 @@ groups:
       - alert: PayPilotDatabaseDown
         expr: |
           paypilot_db_up{job="paypilot-api"} == 0
-          and
+          and on (job, instance)
           (time() - paypilot_db_last_probe_timestamp_seconds{job="paypilot-api"}) < 60
         for: 2m
         labels:
@@ -56,6 +56,8 @@ groups:
       - alert: PayPilotDatabaseProbeStale
         expr: |
           (time() - paypilot_db_last_probe_timestamp_seconds{job="paypilot-api"}) > 60
+          and on (job, instance)
+          up{job="paypilot-api"} == 1
         for: 5m
         labels:
           severity: warning
