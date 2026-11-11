@@ -111,24 +111,49 @@ export function createDbProbe(deps: DbProbeDeps = defaultDeps): DbProbe {
       });
     }
 
+    let finishedAt = startedAt;
     try {
-      const finishedAt = deps.now();
-      deps.setDbUp(connected ? 1 : 0);
-      deps.setDuration((finishedAt - startedAt) / 1000);
-      deps.setTimestamp(finishedAt / 1000);
+      finishedAt = deps.now();
     } catch (error) {
       deps.logWarn('Database probe metric update failed', {
+        metric: 'timestamp',
         message: describeError(error, 'Unknown database metric error'),
       });
     }
+
+    // Guard each setter separately so one failure cannot skip the others.
+    const updateMetric = (metric: string, update: () => void) => {
+      try {
+        update();
+      } catch (error) {
+        deps.logWarn('Database probe metric update failed', {
+          metric,
+          message: describeError(error, 'Unknown database metric error'),
+        });
+      }
+    };
+
+    updateMetric('db_up', () => deps.setDbUp(connected ? 1 : 0));
+    updateMetric('duration', () =>
+      deps.setDuration((finishedAt - startedAt) / 1000)
+    );
+    updateMetric('timestamp', () => deps.setTimestamp(finishedAt / 1000));
   }
 
+  let stop: (() => void) | undefined;
+
   function start(): () => void {
+    if (stop) return stop;
+
     const runSafely = () => {
       void run().catch((error) => {
-        deps.logWarn('Database probe crashed', {
-          message: describeError(error, 'Unknown database probe error'),
-        });
+        try {
+          deps.logWarn('Database probe crashed', {
+            message: describeError(error, 'Unknown database probe error'),
+          });
+        } catch {
+          // A failing logger must never create an unhandled rejection.
+        }
       });
     };
 
@@ -137,7 +162,11 @@ export function createDbProbe(deps: DbProbeDeps = defaultDeps): DbProbe {
     const interval = setInterval(runSafely, DB_PROBE_INTERVAL_MS);
     interval.unref?.();
 
-    return () => clearInterval(interval);
+    stop = () => {
+      clearInterval(interval);
+      stop = undefined;
+    };
+    return stop;
   }
 
   return { run, start };

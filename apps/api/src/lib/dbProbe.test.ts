@@ -206,6 +206,52 @@ describe('runDbProbe', () => {
     await runDbProbe(deps);
     assert.deepEqual(deps.calls.up, [1]);
   });
+
+  it('isolates overlap state between different deps objects', async () => {
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    let queries = 0;
+    const depsA = makeDeps({
+      query: () => {
+        queries += 1;
+        return gateA;
+      },
+    });
+    const depsB = makeDeps({
+      query: () => {
+        queries += 1;
+        return gateB;
+      },
+    });
+
+    try {
+      const firstA = runDbProbe(depsA);
+      const firstB = runDbProbe(depsB);
+      await Promise.resolve();
+
+      assert.equal(queries, 2);
+
+      await runDbProbe(depsA);
+      assert.equal(queries, 2);
+      assert.equal(depsA.calls.debug.length, 1);
+
+      releaseA();
+      releaseB();
+      await Promise.all([firstA, firstB]);
+
+      assert.deepEqual(depsA.calls.up, [1]);
+      assert.deepEqual(depsB.calls.up, [1]);
+    } finally {
+      releaseA();
+      releaseB();
+    }
+  });
 });
 
 describe('startDbProbe', () => {
