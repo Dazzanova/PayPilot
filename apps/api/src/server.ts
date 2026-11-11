@@ -19,9 +19,19 @@ import { startDbProbe } from './lib/dbProbe';
 
 const app = express();
 
-const metricsToken = loadMetricsToken(
-  resolveRepoPath(config.METRICS_TOKEN_FILE)
-);
+function loadMetricsTokenOrExit(): string {
+  try {
+    return loadMetricsToken(resolveRepoPath(config.METRICS_TOKEN_FILE));
+  } catch (error) {
+    logger.error(
+      'Unable to load the metrics bearer token. Create .secrets/paypilot_metrics_token (see docs/OBSERVABILITY.md).',
+      error instanceof Error ? error.message : error
+    );
+    process.exit(1);
+  }
+}
+
+const metricsToken = loadMetricsTokenOrExit();
 initializeBusinessMetricSeries();
 
 // /metrics stays outside CORS, body parsing, request logging, and HTTP metrics.
@@ -61,9 +71,10 @@ app.use(errorHandler);
 const stopDbProbe = startDbProbe();
 
 // Start server
+const displayHost = config.HOST === '0.0.0.0' ? 'localhost' : config.HOST;
 const server = app.listen(config.PORT, config.HOST, () => {
   logger.info(
-    `🚀 PayPilot API server running on http://${config.HOST}:${config.PORT}`
+    `🚀 PayPilot API server running on http://${displayHost}:${config.PORT}`
   );
   logger.info(
     `📡 Health endpoint available at http://localhost:${config.PORT}/api/health`
@@ -72,7 +83,11 @@ const server = app.listen(config.PORT, config.HOST, () => {
 });
 
 // Graceful shutdown handling
+let shuttingDown = false;
 const handleGracefulShutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
   logger.info(`Received ${signal}. Starting graceful shutdown...`);
   stopDbProbe();
 

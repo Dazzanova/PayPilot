@@ -21,6 +21,7 @@ import { createPayrollImportsRouter } from './payrollImport.routes';
 import { importPayrollCsv } from './payrollImport.service';
 import { hashBuffer } from './storage';
 import { MAX_FILE_BYTES } from './payrollImport.types';
+import { payrollImportsTotal } from '../../lib/metrics';
 
 const dbIntegration = process.env.RUN_DB_INTEGRATION === '1';
 const describeDb = dbIntegration ? describe : describe.skip;
@@ -174,6 +175,14 @@ function batchOf(response: JsonResponse) {
     payPeriodStart: string | null;
     payPeriodEnd: string | null;
   };
+}
+
+async function payrollImportsCount(
+  status: 'COMPLETED' | 'FAILED'
+): Promise<number> {
+  const metric = await payrollImportsTotal.get();
+  const sample = metric.values.find((entry) => entry.labels.status === status);
+  return sample?.value ?? 0;
 }
 
 before(async () => {
@@ -843,5 +852,29 @@ describeDb('Payroll import HTTP boundary and exports', () => {
     assert.ok(
       failed.body.data.batches.some((entry: { id: string }) => entry.id === failedBatchId)
     );
+  });
+});
+
+describeDb('Payroll import metrics', () => {
+  it('counts persisted COMPLETED and FAILED batches only', async () => {
+    const completedBefore = await payrollImportsCount('COMPLETED');
+    const failedBefore = await payrollImportsCount('FAILED');
+
+    const success = await upload(
+      fileWith(payRow('PP-5001', '2027-08-01', '2027-08-31'))
+    );
+    assert.equal(batchOf(success).status, 'COMPLETED');
+
+    const failure = await upload(
+      'employee_number,pay_period_start,pay_period_end,currency,gross_pay,total_deductions\nPP-5002,2027-08-01,2027-08-31,INR,1.00,0.00\n'
+    );
+    assert.equal(batchOf(failure).status, 'FAILED');
+
+    // A rejected upload persists no batch and must not increment the counter.
+    const rejected = await upload('a'.repeat(MAX_FILE_BYTES + 1));
+    assert.equal(rejected.status, 413);
+
+    assert.equal(await payrollImportsCount('COMPLETED'), completedBefore + 1);
+    assert.equal(await payrollImportsCount('FAILED'), failedBefore + 1);
   });
 });
