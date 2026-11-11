@@ -194,14 +194,14 @@ Never put the token in `.env`, `docker-compose.yml`, dashboard JSON, logs, or a 
 - Confirm the API is listening on `0.0.0.0:4000` and `HOST` is not `127.0.0.1`.
 - From the Prometheus container: `docker-compose exec prometheus wget -qO- http://host.docker.internal:4000/metrics` should return `401` without a token, which proves reachability.
 - Confirm an `extra_hosts` entry for `host.docker.internal:host-gateway` is present in `docker-compose.yml`.
-- Check host firewall rules for port 4000 (see the firewall section in the README).
+- Check host firewall rules for port 4000 (see [README §10.4](../README.md#104-firewall-requirement-linux)).
 
 ### Prometheus gets `401`
 
 - Confirm `/run/secrets/paypilot_metrics_token` exists inside the container.
 - Confirm `.secrets/paypilot_metrics_token` exists on the host and is readable by the Compose secret mount.
 - Verify the container joined the host group: `docker-compose exec prometheus id` should list the host gid (for example `1000`).
-- Confirm `HOST_GID` in `.env` matches the token file's group: `stat -c '%g' .secrets/paypilot_metrics_token`.
+- Confirm `HOST_GID` in `.env` matches the token file's group: `stat -c '%g' .secrets/paypilot_metrics_token` on Linux, `stat -f '%g' .secrets/paypilot_metrics_token` on macOS.
 - Confirm the API was restarted after the token changed.
 - Do not add the token to the scrape URL or logs.
 
@@ -252,4 +252,4 @@ Never put the token in `.env`, `docker-compose.yml`, dashboard JSON, logs, or a 
 5. Add integration coverage when the metric depends on a route.
 6. Update the dashboard JSON and, if alertable, `docker/prometheus/alerts.yml` plus its rule tests.
 7. Run `promtool check config`, `promtool check rules`, and `promtool test rules`.
-8. Apply rule changes with `docker-compose restart prometheus`; dashboards reload from JSON within about 10 seconds.
+8. Apply rule changes with `docker-compose restart prometheus`; dashboards reload from JSON within about 30 seconds.

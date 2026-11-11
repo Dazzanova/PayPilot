@@ -128,7 +128,7 @@ npm run infra:up
 # equivalent: docker-compose up -d postgres keycloak
 ```
 
-`infra:up` starts only PostgreSQL and Keycloak so a fresh clone does not need the metrics token yet. The full observability stack is started separately in [section 10.2](#102-start-the-stack) after generating the token.
+`infra:up` starts only PostgreSQL and Keycloak so a fresh clone does not need the metrics token yet. The full observability stack is started separately in [section 10.2](#102-start-the-stack) after generating the token. Docker Compose validates the whole file, so `.env` must still define `GRAFANA_ADMIN_PASSWORD` (copy it from `.env.example`) even for this partial start.
 
 Wait until the containers are healthy:
 
@@ -360,7 +360,7 @@ docker network inspect payroll_default --format '{{(index .IPAM.Config 0).Subnet
 
 Replace `payroll_default` with the actual network name (`<compose-project>_default`).
 
-These rules are session-only and disappear on reboot. Persist them with `netfilter-persistent save` or your distribution's firewall tool, or bind `HOST` to the Docker bridge gateway address so port 4000 is not reachable from other interfaces. On macOS and Windows, Docker Desktop routes `host.docker.internal` without a host firewall change; this section does not apply.
+These rules are session-only and disappear on reboot. Persist them with `sudo netfilter-persistent save` or your distribution's firewall tool. Binding `HOST` to the Docker bridge gateway address would avoid the firewall rule, but it makes the API unreachable at `localhost:4000`, so you would also have to point the Vite proxy (`apps/web/vite.config.ts`) and local health checks at that address. On macOS and Windows, Docker Desktop routes `host.docker.internal` without a host firewall change; this section does not apply.
 
 ### 10.5 Dashboards and alerts
 
