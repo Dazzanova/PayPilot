@@ -3558,23 +3558,23 @@ Do not merge until review passes.
 
 ## Completion checklist
 
-- [ ] `@prometheus-io/client@0.16.1` installed; `prom-client` absent.
-- [ ] `/metrics` returns `401` without a valid token and `200` with it.
-- [ ] `/metrics` never emits CORS headers.
-- [ ] HTTP metrics exclude `/metrics` and `/api/health*`.
-- [ ] Unknown methods become `OTHER`; unmatched routes become `unmatched`.
-- [ ] No UUIDs, IDs, emails, query strings, or raw URLs appear in labels.
-- [ ] In-flight gauge is decremented exactly once, including aborted requests.
-- [ ] Business counters only increment for committed `2xx`/`3xx` responses.
-- [ ] DB probe runs every 15s, times out at 2s, never overlaps, and runs at startup.
-- [ ] Prometheus scrapes the host API and retains 15 days.
-- [ ] Five alert rules load and `promtool test rules` passes.
-- [ ] Grafana provisions the Prometheus datasource and both dashboards.
-- [ ] Grafana anonymous access and sign-up are disabled.
-- [ ] `.secrets/` is ignored and no token is committed.
-- [ ] README and `docs/OBSERVABILITY.md` are complete.
-- [ ] Full typecheck, build, unit, and integration suites pass.
-- [ ] PR opened against `main`; unrelated web changes excluded.
+- [x] `@prometheus-io/client@0.16.1` installed; `prom-client` absent.
+- [x] `/metrics` returns `401` without a valid token and `200` with it.
+- [x] `/metrics` never emits CORS headers.
+- [x] HTTP metrics exclude `/metrics` and `/api/health*`.
+- [x] Unknown methods become `OTHER`; unmatched routes become `unmatched`.
+- [x] No UUIDs, IDs, emails, query strings, or raw URLs appear in labels.
+- [x] In-flight gauge is decremented exactly once, including aborted requests.
+- [x] Business counters only increment for committed `2xx`/`3xx` responses.
+- [x] DB probe runs every 15s, times out at 2s, never overlaps, and runs at startup.
+- [x] Prometheus scrapes the host API and retains 15 days.
+- [x] Five alert rules load and `promtool test rules` passes.
+- [x] Grafana provisions the Prometheus datasource and both dashboards.
+- [x] Grafana anonymous access and sign-up are disabled.
+- [x] `.secrets/` is ignored and no token is committed.
+- [x] README and `docs/OBSERVABILITY.md` are complete.
+- [x] Full typecheck, build, unit, and integration suites pass.
+- [x] PR opened against `main`; unrelated web changes excluded.
 
 
 
