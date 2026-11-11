@@ -1246,6 +1246,8 @@ git add apps/api/src/lib/metricsAuth.ts apps/api/src/lib/metricsAuth.test.ts
 git commit -m "feat(api): authenticate /metrics with a constant-time bearer token"
 ```
 
+> **Execution note (`4982875`):** Code review found that the timeout wrapper rejected while the underlying probe query kept running, and that the overlap lock was released at timeout, so a stalled database would accumulate one orphaned query per interval. The committed probe keeps the lock until the underlying query settles, isolates state per `DbProbeDeps` via `createDbProbe`/`WeakMap`, catches metric-setter failures so the lock cannot wedge, attaches `.catch` to scheduled runs, and broadens error redaction. Tests now cover the post-timeout lock, a throwing setter, non-`Error` rejections, redaction of `postgres://` and `password=`, and interval refresh/stop using `node:test` mock timers. The auth middleware also rejects an empty expected token and a multi-line token file, and the tests cover header-parsing edge cases, the 401 body envelope, and all logger levels.
+
 ---
 
 ## Task 7: Hook business counters into committed routes
