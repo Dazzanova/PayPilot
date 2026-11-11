@@ -17,6 +17,11 @@ export function loadMetricsToken(filePath: string): string {
   if (!token) {
     throw new Error(`Metrics token file at ${filePath} is empty`);
   }
+  if (/\s/.test(token)) {
+    throw new Error(
+      `Metrics token file at ${filePath} must contain a single token without whitespace`
+    );
+  }
   return token;
 }
 
@@ -25,7 +30,11 @@ function digest(value: string): Buffer {
 }
 
 export function createMetricsAuthMiddleware(expectedToken: string) {
-  const expectedDigest = digest(expectedToken);
+  const token = expectedToken.trim();
+  if (!token) {
+    throw new Error('Metrics token must not be empty');
+  }
+  const expectedDigest = digest(token);
 
   return function metricsAuth(
     req: Request,

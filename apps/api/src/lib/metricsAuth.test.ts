@@ -29,6 +29,28 @@ function fakeRes() {
   };
 }
 
+function fakeReq(authorization?: string): Request {
+  return {
+    header: (name: string) =>
+      name.toLowerCase() === 'authorization' ? authorization : undefined,
+    method: 'GET',
+    path: '/metrics',
+  } as unknown as Request;
+}
+
+function stubLogger() {
+  const spies = {
+    debug: mock.method(logger, 'debug', () => undefined),
+    warn: mock.method(logger, 'warn', () => undefined),
+    info: mock.method(logger, 'info', () => undefined),
+    error: mock.method(logger, 'error', () => undefined),
+  };
+
+  return () => {
+    for (const spy of Object.values(spies)) spy.mock.restore();
+  };
+}
+
 describe('loadMetricsToken', () => {
   let dir: string;
 
@@ -55,21 +77,25 @@ describe('loadMetricsToken', () => {
     fs.writeFileSync(file, '   \n');
     assert.throws(() => loadMetricsToken(file), /empty/);
   });
+
+  it('throws when the token contains whitespace', () => {
+    const file = path.join(dir, 'multiline');
+    fs.writeFileSync(file, 'first-token\nsecond-token\n');
+    assert.throws(() => loadMetricsToken(file), /without whitespace/);
+  });
 });
 
 describe('createMetricsAuthMiddleware', () => {
+  it('throws when the expected token is empty', () => {
+    assert.throws(() => createMetricsAuthMiddleware('   '), /must not be empty/);
+  });
+
   it('calls next for the correct bearer token', () => {
     const middleware = createMetricsAuthMiddleware(token);
-    const req = {
-      header: (name: string) =>
-        name.toLowerCase() === 'authorization' ? `Bearer ${token}` : undefined,
-      method: 'GET',
-      path: '/metrics',
-    } as unknown as Request;
     const res = fakeRes();
     let nextCalled = false;
 
-    middleware(req, res as unknown as Response, () => {
+    middleware(fakeReq(`Bearer ${token}`), res as unknown as Response, () => {
       nextCalled = true;
     });
 
@@ -79,70 +105,113 @@ describe('createMetricsAuthMiddleware', () => {
 
   it('matches the Bearer scheme case-insensitively', () => {
     const middleware = createMetricsAuthMiddleware(token);
-    const req = {
-      header: () => `bearer ${token}`,
-      method: 'GET',
-      path: '/metrics',
-    } as unknown as Request;
     const res = fakeRes();
     let nextCalled = false;
 
-    middleware(req, res as unknown as Response, () => {
+    middleware(fakeReq(`bearer ${token}`), res as unknown as Response, () => {
       nextCalled = true;
     });
 
     assert.equal(nextCalled, true);
   });
 
-  it('returns 401 with WWW-Authenticate for a missing token', () => {
+  it('accepts tab and multiple-space separators and trailing whitespace', () => {
     const middleware = createMetricsAuthMiddleware(token);
-    const req = {
-      header: () => undefined,
-      method: 'GET',
-      path: '/metrics',
-    } as unknown as Request;
+
+    for (const header of [
+      `Bearer\t${token}`,
+      `Bearer   ${token}`,
+      `Bearer ${token}   `,
+    ]) {
+      const res = fakeRes();
+      let nextCalled = false;
+
+      middleware(fakeReq(header), res as unknown as Response, () => {
+        nextCalled = true;
+      });
+
+      assert.equal(nextCalled, true, header);
+    }
+  });
+
+  it('returns 401 with WWW-Authenticate and the error envelope for a missing token', () => {
+    const restoreLogger = stubLogger();
+    const middleware = createMetricsAuthMiddleware(token);
     const res = fakeRes();
     let nextCalled = false;
 
-    middleware(req, res as unknown as Response, () => {
-      nextCalled = true;
-    });
+    try {
+      middleware(fakeReq(undefined), res as unknown as Response, () => {
+        nextCalled = true;
+      });
+    } finally {
+      restoreLogger();
+    }
 
     assert.equal(nextCalled, false);
     assert.equal(res.statusCode, 401);
     assert.equal(res.headers['WWW-Authenticate'], 'Bearer');
+    assert.deepEqual(res.body, {
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Invalid or missing metrics token',
+      },
+    });
   });
 
   it('returns 401 for a wrong token', () => {
+    const restoreLogger = stubLogger();
     const middleware = createMetricsAuthMiddleware(token);
-    const req = {
-      header: () => 'Bearer wrong-token',
-      method: 'GET',
-      path: '/metrics',
-    } as unknown as Request;
     const res = fakeRes();
 
-    middleware(req, res as unknown as Response, () => undefined);
+    try {
+      middleware(fakeReq('Bearer wrong-token'), res as unknown as Response, () => undefined);
+    } finally {
+      restoreLogger();
+    }
 
     assert.equal(res.statusCode, 401);
     assert.equal(res.headers['WWW-Authenticate'], 'Bearer');
   });
 
-  it('never writes the token to the logger', () => {
-    const debugSpy = mock.method(logger, 'debug', () => undefined);
+  it('rejects malformed authorization headers', () => {
+    const restoreLogger = stubLogger();
     const middleware = createMetricsAuthMiddleware(token);
-    const req = {
-      header: () => 'Bearer wrong-token',
-      method: 'GET',
-      path: '/metrics',
-    } as unknown as Request;
+
+    try {
+      for (const header of ['', 'Bearer', `Bearer ${token} extra`]) {
+        const res = fakeRes();
+        let nextCalled = false;
+
+        middleware(fakeReq(header), res as unknown as Response, () => {
+          nextCalled = true;
+        });
+
+        assert.equal(nextCalled, false, header);
+        assert.equal(res.statusCode, 401, header);
+      }
+    } finally {
+      restoreLogger();
+    }
+  });
+
+  it('never writes the token to any logger level', () => {
+    const restoreLogger = stubLogger();
+    const spies = ['debug', 'warn', 'info', 'error'] as const;
+    const middleware = createMetricsAuthMiddleware(token);
     const res = fakeRes();
 
-    middleware(req, res as unknown as Response, () => undefined);
+    try {
+      middleware(fakeReq('Bearer wrong-token'), res as unknown as Response, () => undefined);
+    } finally {
+      const serialized = JSON.stringify(
+        spies.map((level) => (logger[level] as unknown as { mock?: { calls: unknown[] } }).mock?.calls ?? [])
+      );
+      restoreLogger();
 
-    const serialized = JSON.stringify(debugSpy.mock.calls);
-    assert.equal(serialized.includes(token), false);
-    assert.equal(serialized.includes('wrong-token'), false);
-    debugSpy.mock.restore();
+      assert.equal(serialized.includes(token), false);
+      assert.equal(serialized.includes('wrong-token'), false);
+    }
   });
 });
