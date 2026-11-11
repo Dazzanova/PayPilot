@@ -3552,6 +3552,8 @@ gh pr create \
 
 Do not merge until review passes.
 
+> **Execution note:** Full verification passed on `feat/observability` before the PR: `prisma:validate`, `typecheck`, `typecheck:tests`, `build`, and `npm test` (134 passing) all exit 0; `RUN_DB_INTEGRATION=1 npm run test:integration --workspace=apps/api` passed 223 tests. `promtool check config`, `check rules`, and `test rules` all reported `SUCCESS`; Prometheus and Grafana were healthy; `/metrics` returned 401 without a token, 401 with a wrong token, 200 with the correct token, and no CORS header; `/api/health` still returned the configured CORS origin. The Prometheus target was `up` and all five rules loaded `inactive`. Grafana provisioned both dashboards and the datasource health check passed. PR: <https://github.com/Dazzanova/PayPilot/pull/4> (open, not merged). The three unrelated `apps/web/src/pages/*.tsx` edits remain uncommitted and outside the PR.
+
 ---
 
 ## Completion checklist
