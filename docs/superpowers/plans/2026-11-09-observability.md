@@ -1730,6 +1730,8 @@ git add apps/api/src/server.ts
 git commit -m "feat(api): expose authenticated metrics and wire the DB probe"
 ```
 
+> **Execution note (`4aa6bc9`, `e2fb876`):** Code review hardened startup and test coverage. `server.ts` now loads the token through `loadMetricsTokenOrExit()` so a missing token prints one actionable line and exits 1 instead of an uncaught stack trace; it also guards shutdown re-entry and logs `0.0.0.0`/`::` as `localhost`. The integration harness mounts `cors({ origin, credentials: true })` after `/metrics` and asserts a valid scrape carries no `access-control-allow-origin` while `/api/health` does. It also adds baseline+delta business-counter tests for leave create/review (including overlap and double-review 409s) and payroll `COMPLETED`/`FAILED` (including a rejected upload), plus a non-vacuous `route="unmatched",status="404"` assertion and a matched-route control. `.secrets/` is gitignored. Use the committed tests as the source of truth.
+
 ---
 
 ## Task 10: Add Prometheus to Docker Compose with rules and tests
