@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { ZodTypeAny } from 'zod';
 import { requireAuth, requireRole, tenantRouteHandler } from '../../middleware/auth';
 import { HttpError } from '../../lib/httpError';
+import { attendancePunchesTotal, onRequestSuccess } from '../../lib/metrics';
 import { AuthenticatedRequest } from '../../types/auth';
 import { attendanceListQuerySchema, attendancePunchSchema, attendanceUpsertSchema } from './attendance.schema';
 import { listAttendance, punchAttendance, upsertAttendance } from './attendance.service';
@@ -51,6 +52,9 @@ export function createAttendanceRouter(authMiddleware: RequestHandler = requireA
       const { organizationId, userId } = actor(req);
       const input = parse(attendancePunchSchema, req.body);
       const record = await punchAttendance(tx, organizationId, userId, input);
+      onRequestSuccess(req, () =>
+        attendancePunchesTotal.inc({ action: input.action })
+      );
       return { body: { success: true, data: { record } } };
     })
   );

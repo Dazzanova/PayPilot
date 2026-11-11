@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { ZodTypeAny, z } from 'zod';
 import { requireAuth, requireRole, tenantRouteHandler } from '../../middleware/auth';
 import { HttpError } from '../../lib/httpError';
+import { onRequestSuccess, payrollImportsTotal } from '../../lib/metrics';
 import { AuthenticatedRequest } from '../../types/auth';
 import { MAX_FILE_BYTES } from './payrollImport.types';
 import {
@@ -90,6 +91,13 @@ export function createPayrollImportsRouter(
         filename: decodeFilename(req.header('x-file-name')),
         buffer: req.body,
       });
+
+      const importStatus = batch.status;
+      if (importStatus === 'COMPLETED' || importStatus === 'FAILED') {
+        onRequestSuccess(req, () =>
+          payrollImportsTotal.inc({ status: importStatus })
+        );
+      }
 
       return {
         status: 201,
