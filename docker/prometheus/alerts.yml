@@ -1,4 +1,5 @@
 groups:
+  # Catalog: docs/OBSERVABILITY.md
   - name: paypilot-api
     rules:
       - alert: PayPilotApiDown

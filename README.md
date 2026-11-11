@@ -26,7 +26,7 @@ A multi-tenant Human Resource Management System (HRMS) and Payroll platform foun
 | **Backend** | Node.js, Express, TypeScript, Zod, `jose`, `dotenv` |
 | **Database & ORM** | Self-managed PostgreSQL 16, Prisma ORM 5.x, native Row-Level Security |
 | **Identity provider** | Keycloak 26.2.5 (Authorization Code + PKCE S256, JWKS) |
-| **Local infrastructure** | Docker Compose (PostgreSQL + Keycloak) |
+| **Local infrastructure** | Docker Compose (PostgreSQL, Keycloak, Prometheus, Grafana) |
 | **Workspace & Tooling** | `npm` Workspaces, TypeScript (strict mode) |
 
 ---
@@ -61,11 +61,14 @@ paypilot/
 ├── prisma/migrations-legacy-supabase/# Archived Supabase-era history (not applied)
 ├── docker/
 │   ├── postgres/init/01-init.sh      # Roles, databases, default privileges
-│   └── keycloak/realm/               # Realm/client/audience import
+│   ├── keycloak/realm/               # Realm/client/audience import
+│   ├── prometheus/                   # Scrape config, alert rules, rule tests
+│   └── grafana/                      # Provisioned datasource and dashboards
 ├── scripts/provision-dev-user.ts     # Controlled Keycloak + PayPilot provisioning
 ├── docs/
 │   ├── architecture.md
 │   ├── authentication.md
+│   ├── OBSERVABILITY.md              # Metrics, dashboards, alerts, runbook
 │   └── RLS-IMPLEMENTATION.md
 ├── docker-compose.yml
 ├── .env.example
@@ -79,9 +82,9 @@ paypilot/
 - **Node.js:** v18 or later (tested on Node.js v24)
 - **npm:** v9 or later
 - **Docker:** with either the `docker compose` plugin or the standalone `docker-compose` command
-- **Ports:** `5433` (PostgreSQL) and `8080` (Keycloak) by default
+- **Ports:** `5433` (PostgreSQL), `8080` (Keycloak), `4000` (API), `9090` (Prometheus), and `3000` (Grafana) by default
 
-Port `5433` is the default host port so the stack does not collide with a local PostgreSQL listening on `5432`. Change `POSTGRES_PORT` if needed.
+Port `5433` is the default host port so the stack does not collide with a local PostgreSQL listening on `5432`. Change `POSTGRES_PORT` if needed. Prometheus and Grafana publish on `127.0.0.1` only; change `PROMETHEUS_PORT` or `GRAFANA_PORT` if those ports are already in use.
 
 ---
 
@@ -122,10 +125,12 @@ DIRECT_URL="postgresql://paypilot_migrator:<migrator-password>@localhost:5433/pa
 
 ```bash
 npm run infra:up
-# equivalent: docker-compose up -d
+# equivalent: docker-compose up -d postgres keycloak
 ```
 
-Wait until both containers are healthy:
+`infra:up` starts only PostgreSQL and Keycloak so a fresh clone does not need the metrics token yet. The full observability stack is started separately in [section 10.2](#102-start-the-stack) after generating the token.
+
+Wait until the containers are healthy:
 
 ```bash
 docker ps --filter name=paypilot
@@ -202,6 +207,9 @@ Sign in at http://localhost:5173/login with the provisioned email and developmen
 | `KEYCLOAK_DB_NAME`, `KEYCLOAK_DB_USER`, `KEYCLOAK_DB_PASSWORD` | Separate Keycloak database credentials |
 | `KEYCLOAK_PORT`, `KEYCLOAK_ADMIN_USER`, `KEYCLOAK_ADMIN_PASSWORD` | Keycloak bootstrap admin |
 | `PORT`, `CORS_ORIGIN`, `NODE_ENV` | API runtime settings |
+| `HOST` | API listen interface; `0.0.0.0` is required for Docker-hosted Prometheus |
+| `METRICS_TOKEN_FILE` | Path to the `/metrics` bearer token; relative paths resolve from the repo root |
+| `HOST_GID` | Host group id that owns the metrics token; Prometheus joins this group via `group_add` to read the Compose secret |
 | `DATABASE_URL`, `DIRECT_URL` | Runtime and migration connection strings |
 | `PAYROLL_IMPORT_STORAGE_DIR` | Optional private directory for raw payroll registers; defaults to `<repo>/var/payroll-imports` |
 | `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` | Keycloak server and public client |
@@ -209,9 +217,6 @@ Sign in at http://localhost:5173/login with the provisioned email and developmen
 | `KEYCLOAK_JWKS_URI` | Optional JWKS override; defaults to issuer `/protocol/openid-connect/certs` |
 | `KEYCLOAK_DEV_USER_PASSWORD` | Development-only password used by provisioning |
 | `VITE_API_URL`, `VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | Frontend build-time configuration |
-| `HOST` | API listen interface; `0.0.0.0` is required for Docker-hosted Prometheus |
-| `METRICS_TOKEN_FILE` | Path to the `/metrics` bearer token; relative paths resolve from the repo root |
-| `HOST_GID` | Host group id that owns the metrics token; Prometheus joins this group via `group_add` to read the Compose secret |
 | `PROMETHEUS_PORT`, `GRAFANA_PORT` | Localhost-bound Prometheus and Grafana ports |
 | `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` | Grafana admin login |
 
@@ -303,9 +308,11 @@ printf '%s' "$(openssl rand -hex 32)" > .secrets/paypilot_metrics_token
 chmod 640 .secrets/paypilot_metrics_token
 ```
 
-`.secrets/` is git-ignored. The API reads the token from `METRICS_TOKEN_FILE`; Prometheus reads the same file through a Compose secret at `/run/secrets/paypilot_metrics_token`. Set `HOST_GID` in `.env` to the token file's group (`stat -c '%g' .secrets/paypilot_metrics_token`) so Prometheus can read it without the token being world-readable. Rotating the token requires restarting the API; Prometheus picks up the new file on its next scrape.
+`.secrets/` is git-ignored. The API reads the token from `METRICS_TOKEN_FILE`; Prometheus reads the same file through a Compose secret at `/run/secrets/paypilot_metrics_token`. Set `HOST_GID` in `.env` to the token file's group (`stat -c '%g' .secrets/paypilot_metrics_token` on Linux, `stat -f '%g' .secrets/paypilot_metrics_token` on macOS) so Prometheus can read it without the token being world-readable. Rotating the token requires restarting the API; Prometheus picks up the new file on its next scrape.
 
 ### 10.2 Start the stack
+
+The API must be running on the host for Prometheus to scrape it; start it with `npm run dev:api` (or `npm run dev`) before or after the containers.
 
 Add `GRAFANA_ADMIN_PASSWORD` to `.env` if it is missing, then:
 
@@ -316,7 +323,7 @@ docker-compose up -d prometheus grafana
 - Prometheus: <http://localhost:9090> (targets at `/targets`, alerts at `/alerts`)
 - Grafana: <http://localhost:3000> (login with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`)
 
-Both ports bind to `127.0.0.1`. Grafana anonymous access and sign-up are disabled.
+These are the default ports; if you changed `PROMETHEUS_PORT` or `GRAFANA_PORT`, use those values instead. Both ports bind to `127.0.0.1`. Grafana anonymous access and sign-up are disabled.
 
 ### 10.3 Verify `/metrics`
 
@@ -327,14 +334,14 @@ curl -i http://localhost:4000/metrics
 
 curl -s -H "Authorization: Bearer $(cat .secrets/paypilot_metrics_token)" \
   http://localhost:4000/metrics | head
-# HTTP/1.1 200 OK
+# prints metric lines beginning with # HELP paypilot_...
 ```
 
 `/metrics` is not proxied by Vite and never emits CORS headers.
 
-### 10.4 Firewall requirement
+### 10.4 Firewall requirement (Linux)
 
-Because `host.docker.internal` cannot reach a loopback-only listener, the API binds `0.0.0.0`. Restrict port 4000 to loopback and the Docker bridge subnet:
+Because `host.docker.internal` cannot reach a loopback-only listener, the API binds `0.0.0.0`. On Linux, restrict port 4000 to loopback and the Docker network subnet:
 
 ```bash
 sudo iptables -N PAYPILOT_API 2>/dev/null || true
@@ -345,11 +352,15 @@ sudo iptables -A PAYPILOT_API -j DROP
 sudo iptables -I INPUT -p tcp --dport 4000 -j PAYPILOT_API
 ```
 
-Adapt `172.16.0.0/12` to the actual bridge subnet from:
+`172.16.0.0/12` covers Docker's default address pools, including the Compose network that Prometheus uses. If you changed Docker's `default-address-pools`, inspect the Compose network instead:
 
 ```bash
-docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}'
+docker network inspect payroll_default --format '{{(index .IPAM.Config 0).Subnet}}'
 ```
+
+Replace `payroll_default` with the actual network name (`<compose-project>_default`).
+
+These rules are session-only and disappear on reboot. Persist them with `netfilter-persistent save` or your distribution's firewall tool, or bind `HOST` to the Docker bridge gateway address so port 4000 is not reachable from other interfaces. On macOS and Windows, Docker Desktop routes `host.docker.internal` without a host firewall change; this section does not apply.
 
 ### 10.5 Dashboards and alerts
 
@@ -359,6 +370,8 @@ Grafana provisions two dashboards from JSON in the **PayPilot** folder:
 - **PayPilot Business Activity** — attendance punches, leave requests and reviews, payroll imports.
 
 Prometheus provisions five alerts: `PayPilotApiDown`, `PayPilotHigh5xxRate`, `PayPilotHighP95Latency`, `PayPilotDatabaseDown`, and `PayPilotDatabaseProbeStale`. There is no Alertmanager; firing alerts appear in the Prometheus UI and can be added to a Grafana panel.
+
+Rule files are not hot-reloaded (the stack does not enable the lifecycle API). After editing `docker/prometheus/alerts.yml`, run `docker-compose restart prometheus`.
 
 Dashboard JSON is the source of truth. UI edits are overwritten on restart. Export changes back to JSON. Changing histogram buckets requires updating dashboard and alert queries in the same change.
 

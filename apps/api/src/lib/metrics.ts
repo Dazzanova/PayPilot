@@ -10,6 +10,7 @@ import { NextFunction, Request, Response } from 'express';
 
 export const register = new Registry();
 
+// Metric catalog, label policy, and alert thresholds: docs/OBSERVABILITY.md.
 collectDefaultMetrics({ register, prefix: 'paypilot_' });
 
 // http_duration_buckets_v1. Changing these buckets changes p50/p95/p99 in the

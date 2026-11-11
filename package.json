@@ -14,7 +14,7 @@
     "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:web": "npm run build --workspace=apps/web",
     "build:api": "npm run build --workspace=apps/api",
-    "infra:up": "docker-compose up -d",
+    "infra:up": "docker-compose up -d postgres keycloak",
     "infra:down": "docker-compose down",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",

@@ -15,7 +15,10 @@ Prometheus (127.0.0.1:9090) -> 15s scrape, 15d retention
 Grafana    (127.0.0.1:3000) -> provisioned datasource + two dashboards
 ```
 
-- The API runs on the host. Prometheus reaches it through `host.docker.internal` and the Docker bridge.
+The ports above are defaults; `PROMETHEUS_PORT` and `GRAFANA_PORT` can override them.
+
+- The API runs on the host. Prometheus reaches it through `host.docker.internal` and the Docker network.
+- The API must be running (`npm run dev:api` or `npm run dev`) for the scrape target to be `up`.
 - Prometheus and Grafana run in Docker Compose and publish only on `127.0.0.1`.
 - `/metrics` is mounted before CORS and is never proxied by the web app.
 - There is no OpenTelemetry, tracing, log aggregation, Alertmanager, or Kubernetes.
@@ -34,7 +37,7 @@ chmod 640 .secrets/paypilot_metrics_token
 - `.secrets/` is `0700` and git-ignored; the token is `0640`.
 - The Compose secret bind-mounts the host file with its owner and mode intact, so the container sees the same `0640` permissions.
 - Prometheus runs as `nobody` and joins the host group via `group_add: ["${HOST_GID:-1000}"]` in `docker-compose.yml`. Set `HOST_GID` in `.env` to the group that owns the token so the scrape can read it without making the token world-readable.
-- Check the group with `stat -c '%g' .secrets/paypilot_metrics_token`.
+- Check the group with `stat -c '%g' .secrets/paypilot_metrics_token` on Linux, or `stat -f '%g' .secrets/paypilot_metrics_token` on macOS.
 
 ---
 
@@ -159,6 +162,12 @@ docker-compose exec prometheus /bin/promtool check rules /etc/prometheus/alerts.
 docker-compose exec prometheus /bin/promtool test rules /etc/prometheus/tests/alerts.test.yml
 ```
 
+The stack does not enable the Prometheus lifecycle API, so rule files are not hot-reloaded. After editing `docker/prometheus/alerts.yml`, apply it with:
+
+```bash
+docker-compose restart prometheus
+```
+
 ---
 
 ## 6. Token rotation
@@ -184,8 +193,8 @@ Never put the token in `.env`, `docker-compose.yml`, dashboard JSON, logs, or a 
 
 - Confirm the API is listening on `0.0.0.0:4000` and `HOST` is not `127.0.0.1`.
 - From the Prometheus container: `docker-compose exec prometheus wget -qO- http://host.docker.internal:4000/metrics` should return `401` without a token, which proves reachability.
-- Confirm `extra_hosts: ["host.docker.internal:host-gateway"]` is present.
-- Check host firewall rules for port 4000.
+- Confirm an `extra_hosts` entry for `host.docker.internal:host-gateway` is present in `docker-compose.yml`.
+- Check host firewall rules for port 4000 (see the firewall section in the README).
 
 ### Prometheus gets `401`
 
@@ -198,7 +207,7 @@ Never put the token in `.env`, `docker-compose.yml`, dashboard JSON, logs, or a 
 
 ### Grafana has no data
 
-- Open `Connections → Data sources → Prometheus → Save & test`.
+- Open `Connections → Data sources → Prometheus` and use **Test** (the datasource is provisioned read-only, so it cannot be saved from the UI).
 - Confirm the datasource URL is `http://prometheus:9090` (service DNS, not localhost).
 - Confirm the Prometheus target is `UP`.
 - Confirm the dashboard uses UID `paypilot-prometheus`.
@@ -243,3 +252,4 @@ Never put the token in `.env`, `docker-compose.yml`, dashboard JSON, logs, or a 
 5. Add integration coverage when the metric depends on a route.
 6. Update the dashboard JSON and, if alertable, `docker/prometheus/alerts.yml` plus its rule tests.
 7. Run `promtool check config`, `promtool check rules`, and `promtool test rules`.
+8. Apply rule changes with `docker-compose restart prometheus`; dashboards reload from JSON within about 10 seconds.
