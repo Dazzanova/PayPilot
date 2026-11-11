@@ -861,7 +861,7 @@ describeDb('Payroll import metrics', () => {
     const failedBefore = await payrollImportsCount('FAILED');
 
     const success = await upload(
-      fileWith(payRow('PP-5001', '2027-08-01', '2027-08-31'))
+      fileWith(payRow('PP-3001', '2027-08-01', '2027-08-31'))
     );
     assert.equal(batchOf(success).status, 'COMPLETED');
 

@@ -29,6 +29,7 @@ const orgA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const orgB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 const metricsToken = 'integration-metrics-token';
+const corsOrigin = 'http://localhost:5173';
 
 const userHrA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
 const userManagerA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02';
@@ -214,7 +215,7 @@ before(async () => {
 
   // /metrics must bypass the HTTP metrics middleware and CORS.
   app.get('/metrics', createMetricsAuthMiddleware(metricsToken), metricsHandler);
-  app.use(cors());
+  app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(createHttpMetricsMiddleware());
   app.use(express.json());
   app.use('/api/health', healthRouter);
@@ -674,11 +675,15 @@ describeDb('Attendance and leave integration', () => {
       assert.equal(authorized.status, 200);
       assert.equal(authorized.headers.get('access-control-allow-origin'), null);
 
-      // Control: the CORS middleware is active for regular API routes.
+      // Control: the CORS middleware is active for regular API routes with the
+      // same origin configuration production uses.
       const health = await fetch(`${baseUrl}/api/health`, {
-        headers: { origin: 'https://evil.example' },
+        headers: { origin: corsOrigin },
       });
-      assert.notEqual(health.headers.get('access-control-allow-origin'), null);
+      assert.equal(
+        health.headers.get('access-control-allow-origin'),
+        corsOrigin
+      );
     });
 
     it('increments business counters only for committed successful punches', async () => {
@@ -855,13 +860,18 @@ describeDb('Attendance and leave integration', () => {
       assert.equal(metrics.text.includes('/api/does-not-exist'), false);
 
       // Positive control: a matched route is labeled with its pattern.
+      const attendanceBefore = metricValue(
+        metrics.text,
+        'paypilot_http_requests_total{method="GET",route="/api/attendance",status="200"}'
+      );
       await api('/api/attendance', { user: userEmployeeA1 });
       const after = await fetchMetrics(`Bearer ${metricsToken}`);
-      assert.ok(
+      assert.equal(
         metricValue(
           after.text,
           'paypilot_http_requests_total{method="GET",route="/api/attendance",status="200"}'
-        ) >= 1
+        ),
+        attendanceBefore + 1
       );
     });
 

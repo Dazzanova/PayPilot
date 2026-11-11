@@ -71,7 +71,10 @@ app.use(errorHandler);
 const stopDbProbe = startDbProbe();
 
 // Start server
-const displayHost = config.HOST === '0.0.0.0' ? 'localhost' : config.HOST;
+const displayHost =
+  config.HOST === '0.0.0.0' || config.HOST === '::' || config.HOST === '[::]'
+    ? 'localhost'
+    : config.HOST;
 const server = app.listen(config.PORT, config.HOST, () => {
   logger.info(
     `🚀 PayPilot API server running on http://${displayHost}:${config.PORT}`
