@@ -127,8 +127,8 @@ One migration `20261112xxxxxx_payroll_calculation`:
 - `CREATE TYPE "DeductionRuleType"`, `CREATE TYPE "PayslipLineKind"`.
 - Create both tables, indexes, and foreign keys.
 - `ALTER TABLE "payroll_runs"` / `"payslips"` add the new columns (`payslips` new columns are `NOT NULL` with defaults of `0` so the migration applies cleanly to existing rows).
-- RLS: `ENABLE` + `FORCE ROW LEVEL SECURITY` on `payroll_deduction_rules` and `payslip_line_items`; select/insert/update policies for `payroll_deduction_rules`, select/insert policies for `payslip_line_items` (line items are replaced only by deleting payslips, which cascades; the runtime role does not update them), plus migrator `FOR ALL` policies.
-- `GRANT SELECT, INSERT, UPDATE ON payroll_deduction_rules TO paypilot_app;`
+- RLS: `ENABLE` + `FORCE ROW LEVEL SECURITY` on `payroll_deduction_rules` and `payslip_line_items`; select/insert/update/delete policies for `payroll_deduction_rules`, select/insert policies for `payslip_line_items` (line items are replaced only by deleting payslips, which cascades; the runtime role does not update them), plus migrator `FOR ALL` policies.
+- `GRANT SELECT, INSERT, UPDATE, DELETE ON payroll_deduction_rules TO paypilot_app;`
 - `GRANT SELECT, INSERT ON payslip_line_items TO paypilot_app;`
 - `payroll_runs` and `payslips` already have select/insert/update/delete policies from the native RLS migration, which covers recalculation and lifecycle updates. No policy change is needed there.
 
