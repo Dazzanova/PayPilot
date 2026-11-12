@@ -13,6 +13,9 @@ build/
 .env.*
 !.env.example
 
+# Local secrets (metrics bearer token)
+.secrets/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

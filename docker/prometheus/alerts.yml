@@ -1,0 +1,70 @@
+groups:
+  # Catalog: docs/OBSERVABILITY.md
+  - name: paypilot-api
+    rules:
+      - alert: PayPilotApiDown
+        expr: up{job="paypilot-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PayPilot API is not reachable by Prometheus"
+          description: "Prometheus has failed to scrape the PayPilot API for 2 minutes."
+
+      - alert: PayPilotHigh5xxRate
+        expr: |
+          (
+            sum(rate(paypilot_http_requests_total{job="paypilot-api",status=~"5.."}[5m]))
+            /
+            # No clamp needed: the 5xx series is a subset of the denominator, so
+            # a non-empty numerator implies a non-zero denominator; an idle
+            # window yields an empty vector rather than a division by zero.
+            sum(rate(paypilot_http_requests_total{job="paypilot-api"}[5m]))
+          ) > 0.05
+          and
+          sum(increase(paypilot_http_requests_total{job="paypilot-api"}[5m])) >= 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PayPilot API 5xx rate is above 5%"
+          description: "The 5xx ratio has exceeded 5% for 10 minutes with at least 50 requests in the last 5 minutes."
+
+      - alert: PayPilotHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(paypilot_http_request_duration_seconds_bucket{job="paypilot-api"}[5m]))
+          ) > 1
+          and
+          sum(increase(paypilot_http_request_duration_seconds_count{job="paypilot-api"}[5m])) >= 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PayPilot API p95 latency is above 1s"
+          description: "The p95 request latency has exceeded 1s for 10 minutes with at least 50 requests in the last 5 minutes."
+
+      - alert: PayPilotDatabaseDown
+        expr: |
+          paypilot_db_up{job="paypilot-api"} == 0
+          and on (job, instance)
+          (time() - paypilot_db_last_probe_timestamp_seconds{job="paypilot-api"}) < 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PayPilot database probe is failing"
+          description: "The API's database probe has reported failure for 2 minutes."
+
+      - alert: PayPilotDatabaseProbeStale
+        expr: |
+          (time() - paypilot_db_last_probe_timestamp_seconds{job="paypilot-api"}) > 60
+          and on (job, instance)
+          up{job="paypilot-api"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PayPilot database probe is stale"
+          description: "The API has not updated the database probe timestamp for more than 60 seconds."

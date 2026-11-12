@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import express, { RequestHandler } from 'express';
+import cors from 'cors';
 import {
   AttendanceStatus,
   EmployeeStatus,
@@ -15,6 +16,9 @@ import { errorHandler } from '../../middleware/errorHandler';
 import { AuthenticatedRequest } from '../../types/auth';
 import { createAttendanceRouter } from './attendance.routes';
 import { createLeaveRouter } from '../leave/leave.routes';
+import { createHttpMetricsMiddleware, metricsHandler } from '../../lib/metrics';
+import { createMetricsAuthMiddleware } from '../../lib/metricsAuth';
+import { healthRouter } from '../../routes/health.routes';
 
 const dbIntegration = process.env.RUN_DB_INTEGRATION === '1';
 const describeDb = dbIntegration ? describe : describe.skip;
@@ -23,6 +27,9 @@ const describeDb = dbIntegration ? describe : describe.skip;
 // 8888/9999, so this suite owns aaaa/bbbb and never shares mutable rows.
 const orgA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const orgB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+const metricsToken = 'integration-metrics-token';
+const corsOrigin = 'http://localhost:5173';
 
 const userHrA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
 const userManagerA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02';
@@ -99,6 +106,27 @@ async function api(
   });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null, text };
+}
+
+async function fetchMetrics(authorization?: string, origin?: string) {
+  const response = await fetch(`${baseUrl}/metrics`, {
+    headers: {
+      ...(authorization ? { authorization } : {}),
+      ...(origin ? { origin } : {}),
+    },
+  });
+  return {
+    status: response.status,
+    headers: response.headers,
+    text: await response.text(),
+  };
+}
+
+function metricValue(text: string, sample: string): number {
+  const line = text
+    .split('\n')
+    .find((candidate) => candidate.startsWith(`${sample} `));
+  return line ? Number(line.slice(sample.length + 1)) : 0;
 }
 
 async function createEmployee(
@@ -184,9 +212,24 @@ before(async () => {
   ).id;
 
   const app = express();
+
+  // /metrics must bypass the HTTP metrics middleware and CORS.
+  app.get('/metrics', createMetricsAuthMiddleware(metricsToken), metricsHandler);
+  app.use(cors({ origin: corsOrigin, credentials: true }));
+  app.use(createHttpMetricsMiddleware());
   app.use(express.json());
+  app.use('/api/health', healthRouter);
   app.use('/api/attendance', createAttendanceRouter(fakeAuth));
   app.use('/api/leave-requests', createLeaveRouter(fakeAuth));
+  app.use((req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: `Cannot ${req.method} ${req.originalUrl}`,
+      },
+    });
+  });
   app.use(errorHandler);
 
   await new Promise<void>((resolve) => {
@@ -614,5 +657,232 @@ describeDb('Attendance and leave integration', () => {
       })),
       2
     );
+  });
+
+  describe('metrics endpoint', () => {
+    it('requires a bearer token and never exposes metrics through CORS', async () => {
+      const missing = await fetchMetrics();
+      assert.equal(missing.status, 401);
+      assert.equal(missing.text.includes('paypilot_http_requests_total'), false);
+
+      const wrong = await fetchMetrics('Bearer wrong-token');
+      assert.equal(wrong.status, 401);
+
+      const authorized = await fetchMetrics(
+        `Bearer ${metricsToken}`,
+        'https://evil.example'
+      );
+      assert.equal(authorized.status, 200);
+      assert.equal(authorized.headers.get('access-control-allow-origin'), null);
+
+      // Control: the CORS middleware is active for regular API routes with the
+      // same origin configuration production uses.
+      const health = await fetch(`${baseUrl}/api/health`, {
+        headers: { origin: corsOrigin },
+      });
+      assert.equal(
+        health.headers.get('access-control-allow-origin'),
+        corsOrigin
+      );
+    });
+
+    it('increments business counters only for committed successful punches', async () => {
+      const before = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(before.status, 200);
+      const baseline = metricValue(
+        before.text,
+        'paypilot_attendance_punches_total{action="in"}'
+      );
+      const httpBaseline = metricValue(
+        before.text,
+        'paypilot_http_requests_total{method="POST",route="/api/attendance/punch",status="200"}'
+      );
+
+      const punch = await api('/api/attendance/punch', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: { action: 'in', workDate: '2027-01-15' },
+      });
+      assert.equal(punch.status, 200, punch.text);
+
+      const afterSuccess = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          afterSuccess.text,
+          'paypilot_attendance_punches_total{action="in"}'
+        ),
+        baseline + 1
+      );
+      assert.equal(
+        metricValue(
+          afterSuccess.text,
+          'paypilot_http_requests_total{method="POST",route="/api/attendance/punch",status="200"}'
+        ),
+        httpBaseline + 1
+      );
+
+      const failed = await api('/api/attendance/punch', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: { action: 'in', workDate: '2026-02-30' },
+      });
+      assert.equal(failed.status, 400);
+
+      const afterFailure = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          afterFailure.text,
+          'paypilot_attendance_punches_total{action="in"}'
+        ),
+        baseline + 1
+      );
+    });
+
+    it('counts committed leave creates and reviews only', async () => {
+      const before = await fetchMetrics(`Bearer ${metricsToken}`);
+      const annualBefore = metricValue(
+        before.text,
+        'paypilot_leave_requests_created_total{leave_type="ANNUAL"}'
+      );
+      const sickBefore = metricValue(
+        before.text,
+        'paypilot_leave_requests_created_total{leave_type="SICK"}'
+      );
+      const approveBefore = metricValue(
+        before.text,
+        'paypilot_leave_reviews_total{decision="approve"}'
+      );
+      const rejectBefore = metricValue(
+        before.text,
+        'paypilot_leave_reviews_total{decision="reject"}'
+      );
+
+      const annual = await api('/api/leave-requests', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: {
+          leaveType: 'ANNUAL',
+          startDate: '2027-03-01',
+          endDate: '2027-03-02',
+          reason: 'Metrics annual leave',
+        },
+      });
+      assert.equal(annual.status, 201, annual.text);
+
+      const sick = await api('/api/leave-requests', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: {
+          leaveType: 'SICK',
+          startDate: '2027-03-05',
+          endDate: '2027-03-06',
+          reason: 'Metrics sick leave',
+        },
+      });
+      assert.equal(sick.status, 201, sick.text);
+
+      const overlapping = await api('/api/leave-requests', {
+        method: 'POST',
+        user: userEmployeeA2,
+        body: {
+          leaveType: 'ANNUAL',
+          startDate: '2027-03-01',
+          endDate: '2027-03-02',
+          reason: 'Metrics overlap',
+        },
+      });
+      assert.equal(overlapping.status, 409);
+
+      const approve = await api(
+        `/api/leave-requests/${annual.body.data.request.id}/review`,
+        { method: 'PATCH', user: userHrA, body: { action: 'approve' } }
+      );
+      assert.equal(approve.status, 200, approve.text);
+
+      const reject = await api(
+        `/api/leave-requests/${sick.body.data.request.id}/review`,
+        { method: 'PATCH', user: userHrA, body: { action: 'reject' } }
+      );
+      assert.equal(reject.status, 200, reject.text);
+
+      const doubleReview = await api(
+        `/api/leave-requests/${annual.body.data.request.id}/review`,
+        { method: 'PATCH', user: userHrA, body: { action: 'reject' } }
+      );
+      assert.equal(doubleReview.status, 409);
+
+      const after = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          after.text,
+          'paypilot_leave_requests_created_total{leave_type="ANNUAL"}'
+        ),
+        annualBefore + 1
+      );
+      assert.equal(
+        metricValue(
+          after.text,
+          'paypilot_leave_requests_created_total{leave_type="SICK"}'
+        ),
+        sickBefore + 1
+      );
+      assert.equal(
+        metricValue(
+          after.text,
+          'paypilot_leave_reviews_total{decision="approve"}'
+        ),
+        approveBefore + 1
+      );
+      assert.equal(
+        metricValue(
+          after.text,
+          'paypilot_leave_reviews_total{decision="reject"}'
+        ),
+        rejectBefore + 1
+      );
+    });
+
+    it('excludes health routes and labels unknown routes as unmatched', async () => {
+      await api('/api/health');
+      await api('/api/health/db');
+
+      const missing = await api('/api/does-not-exist');
+      assert.equal(missing.status, 404);
+
+      const metrics = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(metrics.text.includes('route="/api/health'), false);
+      assert.ok(
+        metricValue(
+          metrics.text,
+          'paypilot_http_requests_total{method="GET",route="unmatched",status="404"}'
+        ) >= 1
+      );
+      assert.equal(metrics.text.includes('/api/does-not-exist'), false);
+
+      // Positive control: a matched route is labeled with its pattern.
+      const attendanceBefore = metricValue(
+        metrics.text,
+        'paypilot_http_requests_total{method="GET",route="/api/attendance",status="200"}'
+      );
+      await api('/api/attendance', { user: userEmployeeA1 });
+      const after = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(
+        metricValue(
+          after.text,
+          'paypilot_http_requests_total{method="GET",route="/api/attendance",status="200"}'
+        ),
+        attendanceBefore + 1
+      );
+    });
+
+    it('never labels raw URLs, UUIDs, or query strings', async () => {
+      await api(`/api/attendance?employeeId=${employeeA2}&search=secret`, {
+        user: userEmployeeA1,
+      });
+
+      const metrics = await fetchMetrics(`Bearer ${metricsToken}`);
+      assert.equal(metrics.text.includes(employeeA2), false);
+      assert.equal(metrics.text.includes('search=secret'), false);
+    });
   });
 });

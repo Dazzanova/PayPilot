@@ -1,0 +1,212 @@
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PayPilotApiDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: paypilot-api
+              instance: host.docker.internal:4000
+            exp_annotations:
+              summary: "PayPilot API is not reachable by Prometheus"
+              description: "Prometheus has failed to scrape the PayPilot API for 2 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PayPilotApiDown
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="200"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="500"}'
+        values: '0+10x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "PayPilot API 5xx rate is above 5%"
+              description: "The 5xx ratio has exceeded 5% for 10 minutes with at least 50 requests in the last 5 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="200"}'
+        values: '0+1x20'
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="500"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHigh5xxRate
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="200"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="500"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHigh5xxRate
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_requests_total{job="paypilot-api",instance="host.docker.internal:4000",method="GET",route="/api/test",status="200"}'
+        values: '0+100x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHigh5xxRate
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="0.5"}'
+        values: '0+0x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="1"}'
+        values: '0+0x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="2.5"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="5"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="10"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="+Inf"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_count{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0+100x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHighP95Latency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "PayPilot API p95 latency is above 1s"
+              description: "The p95 request latency has exceeded 1s for 10 minutes with at least 50 requests in the last 5 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="0.5"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="1"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="2.5"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="5"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="10"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="+Inf"}'
+        values: '0+100x20'
+      - series: 'paypilot_http_request_duration_seconds_count{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0+100x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHighP95Latency
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="0.5"}'
+        values: '0+0x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="1"}'
+        values: '0+0x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="2.5"}'
+        values: '0+1x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="5"}'
+        values: '0+1x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="10"}'
+        values: '0+1x20'
+      - series: 'paypilot_http_request_duration_seconds_bucket{job="paypilot-api",instance="host.docker.internal:4000",le="+Inf"}'
+        values: '0+1x20'
+      - series: 'paypilot_http_request_duration_seconds_count{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PayPilotHighP95Latency
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'paypilot_db_up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+      - series: 'paypilot_db_last_probe_timestamp_seconds{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PayPilotDatabaseDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: paypilot-api
+              instance: host.docker.internal:4000
+            exp_annotations:
+              summary: "PayPilot database probe is failing"
+              description: "The API's database probe has reported failure for 2 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '1x20'
+      - series: 'paypilot_db_up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+      - series: 'paypilot_db_last_probe_timestamp_seconds{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PayPilotDatabaseDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PayPilotDatabaseProbeStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: paypilot-api
+              instance: host.docker.internal:4000
+            exp_annotations:
+              summary: "PayPilot database probe is stale"
+              description: "The API has not updated the database probe timestamp for more than 60 seconds."
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '1x20'
+      - series: 'paypilot_db_up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '1x20'
+      - series: 'paypilot_db_last_probe_timestamp_seconds{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PayPilotDatabaseProbeStale
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+      - series: 'paypilot_db_up{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+      - series: 'paypilot_db_last_probe_timestamp_seconds{job="paypilot-api",instance="host.docker.internal:4000"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PayPilotDatabaseProbeStale
+        exp_alerts: []

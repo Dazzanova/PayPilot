@@ -3,6 +3,11 @@ import { UserRole } from '@prisma/client';
 import { ZodTypeAny, z } from 'zod';
 import { requireAuth, requireRole, tenantRouteHandler } from '../../middleware/auth';
 import { HttpError } from '../../lib/httpError';
+import {
+  leaveRequestsCreatedTotal,
+  leaveReviewsTotal,
+  onRequestSuccess,
+} from '../../lib/metrics';
 import { AuthenticatedRequest } from '../../types/auth';
 import { leaveCreateSchema, leaveListQuerySchema, leaveReviewSchema } from './leave.schema';
 import { createLeaveRequest, listLeaveRequests, reviewLeaveRequest } from './leave.service';
@@ -50,6 +55,9 @@ export function createLeaveRouter(authMiddleware: RequestHandler = requireAuth):
       const { organizationId, userId } = actor(req);
       const input = parse(leaveCreateSchema, req.body);
       const request = await createLeaveRequest(tx, organizationId, userId, input);
+      onRequestSuccess(req, () =>
+        leaveRequestsCreatedTotal.inc({ leave_type: input.leaveType })
+      );
       return { status: 201, body: { success: true, data: { request } } };
     })
   );
@@ -65,6 +73,9 @@ export function createLeaveRouter(authMiddleware: RequestHandler = requireAuth):
       }
       const input = parse(leaveReviewSchema, req.body);
       const request = await reviewLeaveRequest(tx, organizationId, userId, idResult.data, input);
+      onRequestSuccess(req, () =>
+        leaveReviewsTotal.inc({ decision: input.action })
+      );
       return { body: { success: true, data: { request } } };
     })
   );
