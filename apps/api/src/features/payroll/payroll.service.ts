@@ -1,5 +1,13 @@
-import { DeductionRuleType, PayrollStatus, Prisma } from '@prisma/client';
+import {
+  DeductionRuleType,
+  EmployeeStatus,
+  LeaveStatus,
+  PayrollStatus,
+  PayslipStatus,
+  Prisma,
+} from '@prisma/client';
 import { HttpError } from '../../lib/httpError';
+import { PayrollCalculationError, calculatePayroll, type CalcEmployee } from './payroll.calc';
 import {
   RUN_INCLUDE,
   toDeductionRuleDto,
@@ -276,4 +284,196 @@ export async function getPayrollRun(
   });
   if (!run) throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
   return toRunDto(run);
+}
+
+function dateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function centsToDecimal(cents: number): Prisma.Decimal {
+  return new Prisma.Decimal(cents).div(100);
+}
+
+export async function calculatePayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  runId: string
+): Promise<PayrollRunDto> {
+  const guard = await tx.payrollRun.updateMany({
+    where: {
+      id: runId,
+      organizationId,
+      status: { in: [PayrollStatus.DRAFT, PayrollStatus.CALCULATED] },
+    },
+    data: { status: PayrollStatus.CALCULATING, processedById: userId },
+  });
+
+  if (guard.count === 0) {
+    const existing = await tx.payrollRun.findFirst({
+      where: { id: runId, organizationId },
+      select: { status: true },
+    });
+    if (!existing) {
+      throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
+    }
+    throw new HttpError(
+      409,
+      'INVALID_PAYROLL_TRANSITION',
+      `Cannot calculate a payroll run in ${existing.status} status`,
+      { from: existing.status, action: 'calculate' }
+    );
+  }
+
+  const run = await tx.payrollRun.findFirstOrThrow({
+    where: { id: runId, organizationId },
+  });
+  const organization = await tx.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { currency: true },
+  });
+
+  await ensureDeductionRules(tx, organizationId);
+  const rules = await tx.payrollDeductionRule.findMany({
+    where: { organizationId, active: true },
+    orderBy: { name: 'asc' },
+  });
+
+  const employees = await tx.employee.findMany({
+    where: {
+      organizationId,
+      status: { in: [EmployeeStatus.ACTIVE, EmployeeStatus.ON_LEAVE] },
+    },
+    select: { id: true, baseSalary: true, joinedAt: true },
+  });
+  const employeeIds = employees.map((employee) => employee.id);
+
+  const [attendance, leave] = await Promise.all([
+    tx.attendanceRecord.findMany({
+      where: {
+        organizationId,
+        employeeId: { in: employeeIds },
+        workDate: { gte: run.periodStart, lte: run.periodEnd },
+      },
+      select: { employeeId: true, workDate: true, status: true },
+    }),
+    tx.leaveRequest.findMany({
+      where: {
+        organizationId,
+        employeeId: { in: employeeIds },
+        status: LeaveStatus.APPROVED,
+        startDate: { lte: run.periodEnd },
+        endDate: { gte: run.periodStart },
+      },
+      select: { employeeId: true, leaveType: true, startDate: true, endDate: true },
+    }),
+  ]);
+
+  const attendanceByEmployee = new Map<string, CalcEmployee['attendance']>();
+  for (const record of attendance) {
+    const list = attendanceByEmployee.get(record.employeeId) ?? [];
+    list.push({ workDate: dateOnly(record.workDate), status: record.status });
+    attendanceByEmployee.set(record.employeeId, list);
+  }
+
+  const leaveByEmployee = new Map<string, CalcEmployee['approvedLeave']>();
+  for (const request of leave) {
+    const list = leaveByEmployee.get(request.employeeId) ?? [];
+    list.push({
+      leaveType: request.leaveType,
+      startDate: dateOnly(request.startDate),
+      endDate: dateOnly(request.endDate),
+    });
+    leaveByEmployee.set(request.employeeId, list);
+  }
+
+  let result;
+  try {
+    result = calculatePayroll({
+      periodStart: dateOnly(run.periodStart),
+      periodEnd: dateOnly(run.periodEnd),
+      currency: organization.currency,
+      rules: rules.map((rule) => ({
+        id: rule.id,
+        name: rule.name,
+        type: rule.type,
+        valueCents: rule.value.mul(100).toDecimalPlaces(0).toNumber(),
+      })),
+      employees: employees.map((employee) => ({
+        id: employee.id,
+        baseSalaryCents: employee.baseSalary.mul(100).toDecimalPlaces(0).toNumber(),
+        joinedAt: dateOnly(employee.joinedAt),
+        attendance: attendanceByEmployee.get(employee.id) ?? [],
+        approvedLeave: leaveByEmployee.get(employee.id) ?? [],
+      })),
+    });
+  } catch (error) {
+    if (error instanceof PayrollCalculationError) {
+      throw new HttpError(422, error.code, error.message, error.details);
+    }
+    throw error;
+  }
+
+  await tx.payslip.deleteMany({ where: { organizationId, payrollRunId: runId } });
+
+  for (const payslip of result.payslips) {
+    await tx.payslip.create({
+      data: {
+        organizationId,
+        payrollRunId: runId,
+        employeeId: payslip.employeeId,
+        baseSalary: centsToDecimal(payslip.baseSalaryCents),
+        workingDays: new Prisma.Decimal(payslip.workingDays),
+        paidDays: new Prisma.Decimal(payslip.paidDays),
+        unpaidDays: new Prisma.Decimal(payslip.unpaidDays),
+        absentDays: new Prisma.Decimal(payslip.absentDays),
+        grossPay: centsToDecimal(payslip.grossCents),
+        totalDeductions: centsToDecimal(payslip.totalDeductionsCents),
+        netPay: centsToDecimal(payslip.netCents),
+        currency: organization.currency,
+        status: PayslipStatus.DRAFT,
+        lineItems: {
+          create: payslip.lines.map((line) => ({
+            organizationId,
+            kind: line.kind,
+            label: line.label,
+            amount: centsToDecimal(line.amountCents),
+            ruleId: line.ruleId,
+            sortOrder: line.sortOrder,
+          })),
+        },
+      },
+    });
+  }
+
+  const updated = await tx.payrollRun.update({
+    where: { id: runId },
+    data: {
+      status: PayrollStatus.CALCULATED,
+      totalGross: centsToDecimal(result.totalGrossCents),
+      totalDeductions: centsToDecimal(result.totalDeductionsCents),
+      totalNet: centsToDecimal(result.totalNetCents),
+      calculatedAt: new Date(),
+      processedById: userId,
+    },
+    include: RUN_INCLUDE,
+  });
+
+  await tx.auditLog.create({
+    data: {
+      organizationId,
+      actorId: userId,
+      action: 'payroll.run_calculated',
+      entityType: 'PayrollRun',
+      entityId: runId,
+      metadata: {
+        payslipCount: result.payslips.length,
+        totalGross: updated.totalGross.toFixed(2),
+        totalDeductions: updated.totalDeductions.toFixed(2),
+        totalNet: updated.totalNet.toFixed(2),
+      },
+    },
+  });
+
+  return toRunDto(updated);
 }

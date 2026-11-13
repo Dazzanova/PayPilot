@@ -12,6 +12,7 @@ import {
   payrollRunListQuerySchema,
 } from './payroll.schema';
 import {
+  calculatePayrollRun,
   createDeductionRule,
   createPayrollRun,
   deleteDeductionRule,
@@ -128,6 +129,17 @@ export function createPayrollRunsRouter(
       const input = parse(payrollRunCreateSchema, req.body);
       const run = await createPayrollRun(tx, organizationId, userId, input);
       return { status: 201, body: { success: true, data: { run } } };
+    })
+  );
+
+  router.post(
+    '/:id/calculate',
+    requireRole(...HR_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const run = await calculatePayrollRun(tx, organizationId, userId, id);
+      return { body: { success: true, data: { run } } };
     })
   );
 

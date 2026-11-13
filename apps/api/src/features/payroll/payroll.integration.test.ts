@@ -415,3 +415,77 @@ describeDb('payroll runs', () => {
   });
 });
 
+
+describeDb('payroll calculation', () => {
+  it('calculates payslips for active employees', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/calculate`);
+    assert.equal(response.status, 200, response.text);
+    const run = response.body.data.run;
+    assert.equal(run.status, 'CALCULATED');
+    assert.equal(run.payslipCount, 4);
+    assert.equal(run.totalGross, '12954.55');
+    assert.equal(run.totalDeductions, '2143.18');
+    assert.equal(run.totalNet, '10811.37');
+    assert.equal(
+      run.payslips.some((payslip: any) => payslip.employeeId === empTerminated),
+      false
+    );
+  });
+
+  it('prorates attendance and approved unpaid leave', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const payslips = response.body.data.run.payslips;
+    const byEmployee = new Map(payslips.map((payslip: any) => [payslip.employeeId, payslip]));
+
+    assert.equal((byEmployee.get(empFull) as any).grossPay, '5000.00');
+    assert.equal((byEmployee.get(empAbsent) as any).grossPay, '2863.64');
+    assert.equal((byEmployee.get(empAbsent) as any).absentDays, '1.0');
+    assert.equal((byEmployee.get(empLeave) as any).grossPay, '3090.91');
+    assert.equal((byEmployee.get(empLeave) as any).unpaidDays, '5.0');
+    assert.equal((byEmployee.get(empSelf) as any).grossPay, '2000.00');
+  });
+
+  it('writes earning and deduction line items', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const payslip = response.body.data.run.payslips.find(
+      (row: any) => row.employeeId === empFull
+    );
+    assert.equal(payslip.lines.length, 4);
+    assert.equal(payslip.lines[0].kind, 'EARNING');
+    assert.equal(payslip.lines[0].label, 'Base salary (prorated)');
+    assert.deepEqual(
+      payslip.lines.slice(1).map((line: any) => line.kind),
+      ['DEDUCTION', 'DEDUCTION', 'DEDUCTION']
+    );
+  });
+
+  it('replaces payslips when recalculating', async () => {
+    const before = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const beforeIds = before.body.data.run.payslips.map((payslip: any) => payslip.id).sort();
+
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/calculate`);
+    assert.equal(response.status, 200, response.text);
+    const afterIds = response.body.data.run.payslips
+      .map((payslip: any) => payslip.id)
+      .sort();
+
+    assert.equal(afterIds.length, beforeIds.length);
+    assert.notDeepEqual(afterIds, beforeIds);
+  });
+
+  it('forbids employees and managers from calculating', async () => {
+    for (const role of [UserRole.EMPLOYEE, UserRole.MANAGER]) {
+      const response = await request('POST', `/api/payroll-runs/${octoberRunId}/calculate`, {
+        role,
+      });
+      assert.equal(response.status, 403, `${role}: ${response.text}`);
+    }
+  });
+
+  it('returns 404 for a run in another tenant', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/calculate`, {
+      org: orgB,
+    });
+    assert.equal(response.status, 404, response.text);
+  });
+});
