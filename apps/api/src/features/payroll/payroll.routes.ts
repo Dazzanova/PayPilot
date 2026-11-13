@@ -7,12 +7,17 @@ import { AuthenticatedRequest } from '../../types/auth';
 import {
   deductionRuleCreateSchema,
   deductionRuleUpdateSchema,
+  payrollRunCreateSchema,
   payrollRunIdSchema,
+  payrollRunListQuerySchema,
 } from './payroll.schema';
 import {
   createDeductionRule,
+  createPayrollRun,
   deleteDeductionRule,
+  getPayrollRun,
   listDeductionRules,
+  listPayrollRuns,
   updateDeductionRule,
 } from './payroll.service';
 
@@ -98,9 +103,45 @@ export function createDeductionRulesRouter(
 export const payrollDeductionRulesRouter = createDeductionRulesRouter();
 
 // Placeholder factories are replaced in later tasks.
-export function createPayrollRunsRouter(authMiddleware: RequestHandler = requireAuth): Router {
+export function createPayrollRunsRouter(
+  authMiddleware: RequestHandler = requireAuth
+): Router {
   const router = Router();
-  router.use(authMiddleware, requireRole(...READ_ROLES));
+  router.use(authMiddleware);
+
+  router.get(
+    '/',
+    requireRole(...READ_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId } = actor(req);
+      const query = parse(payrollRunListQuerySchema, req.query);
+      const result = await listPayrollRuns(tx, organizationId, query);
+      return { body: { success: true, data: result } };
+    })
+  );
+
+  router.post(
+    '/',
+    requireRole(...HR_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const input = parse(payrollRunCreateSchema, req.body);
+      const run = await createPayrollRun(tx, organizationId, userId, input);
+      return { status: 201, body: { success: true, data: { run } } };
+    })
+  );
+
+  router.get(
+    '/:id',
+    requireRole(...READ_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const run = await getPayrollRun(tx, organizationId, id);
+      return { body: { success: true, data: { run } } };
+    })
+  );
+
   return router;
 }
 

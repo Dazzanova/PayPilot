@@ -1,9 +1,19 @@
-import { DeductionRuleType, Prisma } from '@prisma/client';
+import { DeductionRuleType, PayrollStatus, Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/httpError';
-import { toDeductionRuleDto, type DeductionRuleDto } from './payroll.dto';
+import {
+  RUN_INCLUDE,
+  toDeductionRuleDto,
+  toRunDto,
+  toRunSummaryDto,
+  type DeductionRuleDto,
+  type PayrollRunDto,
+  type PayrollRunSummaryDto,
+} from './payroll.dto';
 import type {
   DeductionRuleCreateInput,
   DeductionRuleUpdateInput,
+  PayrollRunCreateInput,
+  PayrollRunListQuery,
 } from './payroll.schema';
 
 type Tx = Prisma.TransactionClient;
@@ -164,4 +174,106 @@ export async function deleteDeductionRule(
       metadata: { name: existing.name },
     },
   });
+}
+
+function dateValue(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function pageResult(page: number, pageSize: number, total: number) {
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
+export async function listPayrollRuns(
+  tx: Tx,
+  organizationId: string,
+  query: PayrollRunListQuery
+): Promise<{ runs: PayrollRunSummaryDto[]; pagination: ReturnType<typeof pageResult> }> {
+  const where: Prisma.PayrollRunWhereInput = { organizationId };
+  if (query.status) where.status = query.status;
+  if (query.from) where.periodEnd = { gte: dateValue(query.from) };
+  if (query.to) where.periodStart = { lte: dateValue(query.to) };
+
+  const [total, runs] = await Promise.all([
+    tx.payrollRun.count({ where }),
+    tx.payrollRun.findMany({
+      where,
+      include: { _count: { select: { payslips: true } } },
+      orderBy: [{ periodStart: 'desc' }, { id: 'desc' }],
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+    }),
+  ]);
+
+  return {
+    runs: runs.map(toRunSummaryDto),
+    pagination: pageResult(query.page, query.pageSize, total),
+  };
+}
+
+export async function createPayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  input: PayrollRunCreateInput
+): Promise<PayrollRunDto> {
+  try {
+    const created = await tx.payrollRun.create({
+      data: {
+        organizationId,
+        periodStart: dateValue(input.periodStart),
+        periodEnd: dateValue(input.periodEnd),
+        payDate: dateValue(input.payDate),
+        status: PayrollStatus.DRAFT,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        actorId: userId,
+        action: 'payroll.run_created',
+        entityType: 'PayrollRun',
+        entityId: created.id,
+        metadata: {
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          payDate: input.payDate,
+        },
+      },
+    });
+
+    const run = await tx.payrollRun.findFirstOrThrow({
+      where: { id: created.id, organizationId },
+      include: RUN_INCLUDE,
+    });
+    return toRunDto(run);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new HttpError(
+        409,
+        'PAYROLL_RUN_EXISTS',
+        'A payroll run already exists for this period'
+      );
+    }
+    throw error;
+  }
+}
+
+export async function getPayrollRun(
+  tx: Tx,
+  organizationId: string,
+  runId: string
+): Promise<PayrollRunDto> {
+  const run = await tx.payrollRun.findFirst({
+    where: { id: runId, organizationId },
+    include: RUN_INCLUDE,
+  });
+  if (!run) throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
+  return toRunDto(run);
 }

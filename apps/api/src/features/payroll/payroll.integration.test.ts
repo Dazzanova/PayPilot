@@ -353,4 +353,65 @@ describeDb('payroll deduction rules', () => {
   });
 });
 
-// Later tasks append run, calculation, lifecycle, and payslip tests here.
+let octoberRunId = '';
+
+describeDb('payroll runs', () => {
+  it('creates a draft run', async () => {
+    const response = await request('POST', '/api/payroll-runs', {
+      body: { periodStart: '2026-10-01', periodEnd: '2026-10-31', payDate: '2026-10-31' },
+    });
+    assert.equal(response.status, 201, response.text);
+    const run = response.body.data.run;
+    assert.equal(run.status, 'DRAFT');
+    assert.equal(run.totalGross, '0.00');
+    assert.equal(run.payslipCount, 0);
+    assert.deepEqual(run.payslips, []);
+    octoberRunId = run.id;
+  });
+
+  it('rejects a duplicate period', async () => {
+    const response = await request('POST', '/api/payroll-runs', {
+      body: { periodStart: '2026-10-01', periodEnd: '2026-10-31', payDate: '2026-10-31' },
+    });
+    assert.equal(response.status, 409, response.text);
+    assert.equal(response.body.error.code, 'PAYROLL_RUN_EXISTS');
+  });
+
+  it('rejects an invalid period', async () => {
+    const response = await request('POST', '/api/payroll-runs', {
+      body: { periodStart: '2026-10-31', periodEnd: '2026-10-01', payDate: '2026-10-31' },
+    });
+    assert.equal(response.status, 400, response.text);
+    assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  });
+
+  it('lists runs for managers and HR', async () => {
+    for (const role of [UserRole.HR_MANAGER, UserRole.MANAGER]) {
+      const response = await request('GET', '/api/payroll-runs', { role });
+      assert.equal(response.status, 200, `${role}: ${response.text}`);
+      assert.equal(response.body.data.runs.some((run: any) => run.id === octoberRunId), true);
+    }
+  });
+
+  it('returns run detail with an empty payslip list before calculation', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.run.id, octoberRunId);
+    assert.deepEqual(response.body.data.run.payslips, []);
+  });
+
+  it('forbids employees from reading runs', async () => {
+    const list = await request('GET', '/api/payroll-runs', { role: UserRole.EMPLOYEE });
+    assert.equal(list.status, 403, list.text);
+    const detail = await request('GET', `/api/payroll-runs/${octoberRunId}`, {
+      role: UserRole.EMPLOYEE,
+    });
+    assert.equal(detail.status, 403, detail.text);
+  });
+
+  it('hides runs from another tenant', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}`, { org: orgB });
+    assert.equal(response.status, 404, response.text);
+  });
+});
+
