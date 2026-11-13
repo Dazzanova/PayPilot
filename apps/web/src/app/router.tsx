@@ -13,6 +13,9 @@ const LeavePage = lazy(() => import('../pages/LeavePage').then(m => ({ default: 
 const PayrollPage = lazy(() => import('../pages/PayrollPage').then(m => ({ default: m.PayrollPage })));
 const PayrollImportsPage = lazy(() => import('../pages/PayrollImportsPage').then(m => ({ default: m.PayrollImportsPage })));
 const PayrollImportDetailPage = lazy(() => import('../pages/PayrollImportDetailPage').then(m => ({ default: m.PayrollImportDetailPage })));
+const PayrollRunDetailPage = lazy(() => import('../pages/PayrollRunDetailPage').then(m => ({ default: m.PayrollRunDetailPage })));
+const MyPayslipsPage = lazy(() => import('../pages/MyPayslipsPage').then(m => ({ default: m.MyPayslipsPage })));
+const PayrollDeductionRulesPage = lazy(() => import('../pages/PayrollDeductionRulesPage').then(m => ({ default: m.PayrollDeductionRulesPage })));
 const DepartmentsPage = lazy(() => import('../pages/DepartmentsPage').then(m => ({ default: m.DepartmentsPage })));
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
@@ -88,6 +91,30 @@ export const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingFallback />}>
             <PayrollImportDetailPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'payroll/runs/:id',
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <PayrollRunDetailPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'payroll/my-payslips',
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <MyPayslipsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'payroll/deduction-rules',
+        element: (
+          <Suspense fallback={<LoadingFallback />}>
+            <PayrollDeductionRulesPage />
           </Suspense>
         ),
       },

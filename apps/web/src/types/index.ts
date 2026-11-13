@@ -77,7 +77,7 @@ export interface LeaveRequest {
   createdAt: string;
 }
 
-export type PayrollStatus = 'DRAFT' | 'CALCULATING' | 'APPROVED' | 'PAID' | 'VOID';
+export type PayrollStatus = 'DRAFT' | 'CALCULATING' | 'CALCULATED' | 'APPROVED' | 'PAID' | 'VOID';
 
 export interface PayrollRun {
   id: string;
@@ -90,6 +90,80 @@ export interface PayrollRun {
   totalDeductions: number;
   totalNet: number;
   employeeCount: number;
+}
+
+export interface PayslipLineItemDto {
+  id: string;
+  kind: 'EARNING' | 'DEDUCTION';
+  label: string;
+  amount: string;
+  ruleId: string | null;
+  sortOrder: number;
+}
+
+export interface PayslipDto {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  departmentName: string | null;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  baseSalary: string;
+  workingDays: string;
+  paidDays: string;
+  unpaidDays: string;
+  absentDays: string;
+  grossPay: string;
+  totalDeductions: string;
+  netPay: string;
+  currency: string;
+  status: 'DRAFT' | 'ISSUED' | 'PAID';
+  lines: PayslipLineItemDto[];
+}
+
+export interface PayrollRunSummaryDto {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  status: PayrollStatus;
+  totalGross: string;
+  totalDeductions: string;
+  totalNet: string;
+  payslipCount: number;
+  createdAt: string;
+  calculatedAt: string | null;
+  approvedAt: string | null;
+  paidAt: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface PayrollRunDto extends PayrollRunSummaryDto {
+  payslips: PayslipDto[];
+}
+
+export interface DeductionRuleDto {
+  id: string;
+  name: string;
+  type: 'RATE' | 'FIXED';
+  value: string;
+  taxable: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayrollRunsResult {
+  runs: PayrollRunSummaryDto[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface EmployeeDto {

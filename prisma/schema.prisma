@@ -67,6 +67,7 @@ enum LeaveStatus {
 enum PayrollStatus {
   DRAFT
   CALCULATING
+  CALCULATED
   APPROVED
   PAID
   VOID
@@ -76,6 +77,16 @@ enum PayslipStatus {
   DRAFT
   ISSUED
   PAID
+}
+
+enum DeductionRuleType {
+  RATE
+  FIXED
+}
+
+enum PayslipLineKind {
+  EARNING
+  DEDUCTION
 }
 
 enum PayrollImportStatus {
@@ -115,6 +126,8 @@ model Organization {
   payrollImportBatches   PayrollImportBatch[]
   importedPayrollRecords ImportedPayrollRecord[]
   validationFindings     ValidationFinding[]
+  payrollDeductionRules  PayrollDeductionRule[]
+  payslipLineItems       PayslipLineItem[]
 
   @@map("organizations")
 }
@@ -255,6 +268,11 @@ model PayrollRun {
   processedById   String?       @map("processed_by_id")
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
+  calculatedAt    DateTime?     @map("calculated_at")
+  approvedAt      DateTime?     @map("approved_at")
+  paidAt          DateTime?     @map("paid_at")
+  voidedAt        DateTime?     @map("voided_at")
+  voidReason      String?       @map("void_reason")
 
   // Relationships
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -278,6 +296,12 @@ model Payslip {
   documentUrl     String?       @map("document_url")
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
+  baseSalary      Decimal       @default(0) @map("base_salary") @db.Decimal(12, 2)
+  workingDays     Decimal       @default(0) @map("working_days") @db.Decimal(5, 2)
+  paidDays        Decimal       @default(0) @map("paid_days") @db.Decimal(5, 2)
+  unpaidDays      Decimal       @default(0) @map("unpaid_days") @db.Decimal(5, 2)
+  absentDays      Decimal       @default(0) @map("absent_days") @db.Decimal(5, 2)
+  lineItems       PayslipLineItem[]
 
   // Relationships
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -288,6 +312,44 @@ model Payslip {
   @@index([organizationId])
   @@index([employeeId])
   @@map("payslips")
+}
+
+model PayrollDeductionRule {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  name           String
+  type           DeductionRuleType
+  value          Decimal           @db.Decimal(12, 2)
+  taxable        Boolean           @default(true)
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lineItems    PayslipLineItem[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+  @@map("payroll_deduction_rules")
+}
+
+model PayslipLineItem {
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  payslipId      String          @map("payslip_id")
+  kind           PayslipLineKind
+  label          String
+  amount         Decimal         @db.Decimal(12, 2)
+  ruleId         String?         @map("rule_id")
+  sortOrder      Int             @map("sort_order")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payslip      Payslip               @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+  rule         PayrollDeductionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, payslipId])
+  @@map("payslip_line_items")
 }
 
 model AuditLog {

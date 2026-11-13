@@ -6,6 +6,11 @@ import { departmentsRouter } from './departments.routes';
 import { payrollImportsRouter } from '../features/payrollImport/payrollImport.routes';
 import { attendanceRouter } from '../features/attendance/attendance.routes';
 import { leaveRouter } from '../features/leave/leave.routes';
+import {
+  payrollDeductionRulesRouter,
+  payrollRunsRouter,
+  payslipsRouter,
+} from '../features/payroll/payroll.routes';
 
 export const apiRouter = Router();
 
@@ -16,6 +21,9 @@ apiRouter.use('/departments', departmentsRouter);
 apiRouter.use('/payroll-imports', payrollImportsRouter);
 apiRouter.use('/attendance', attendanceRouter);
 apiRouter.use('/leave-requests', leaveRouter);
+apiRouter.use('/payroll-runs', payrollRunsRouter);
+apiRouter.use('/payslips', payslipsRouter);
+apiRouter.use('/payroll-deduction-rules', payrollDeductionRulesRouter);
 
 apiRouter.get('/', (req, res) => {
   res.json({
