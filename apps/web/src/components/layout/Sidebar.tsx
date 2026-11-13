@@ -7,18 +7,22 @@ import {
   CalendarOff,
   Banknote,
   FileUp,
+  Receipt,
+  Wallet,
   Building2,
   Settings,
   ShieldAlert,
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface NavItem {
   label: string;
   path: string;
   icon: React.ElementType;
   badge?: string;
+  hrOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -27,6 +31,8 @@ const navItems: NavItem[] = [
   { label: 'Attendance', path: '/attendance', icon: CalendarCheck },
   { label: 'Leave Management', path: '/leave', icon: CalendarOff, badge: '3' },
   { label: 'Payroll', path: '/payroll', icon: Banknote },
+  { label: 'My Payslips', path: '/payroll/my-payslips', icon: Receipt },
+  { label: 'Deduction Rules', path: '/payroll/deduction-rules', icon: Wallet, hrOnly: true },
   { label: 'Payroll Imports', path: '/payroll/imports', icon: FileUp },
   { label: 'Departments', path: '/departments', icon: Building2 },
   { label: 'Settings', path: '/settings', icon: Settings },
@@ -38,6 +44,10 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+  const { user } = useAuth();
+  const isHr = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'HR_MANAGER';
+  const visibleItems = navItems.filter((item) => !item.hrOnly || isHr);
+
   return (
     <>
       {/* Mobile overlay */}
@@ -87,7 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           <div className="px-3 pb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
             Main Operations
           </div>
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink

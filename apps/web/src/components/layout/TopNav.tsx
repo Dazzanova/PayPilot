@@ -23,6 +23,9 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/payroll': { title: 'Payroll Processing', subtitle: 'Salary cycles, payslips, and disbursements' },
   '/payroll/imports': { title: 'Payroll Imports', subtitle: 'Upload registers and review validation findings' },
   '/payroll/imports/:id': { title: 'Payroll Import Detail', subtitle: 'Validation findings, records, and exception report' },
+  '/payroll/runs/:id': { title: 'Payroll Run Detail', subtitle: 'Payslips, totals, and lifecycle actions' },
+  '/payroll/my-payslips': { title: 'My Payslips', subtitle: 'Your pay history and deductions' },
+  '/payroll/deduction-rules': { title: 'Deduction Rules', subtitle: 'Percentage and fixed payroll deductions' },
   '/departments': { title: 'Departments', subtitle: 'Organizational units and department leaders' },
   '/settings': { title: 'Organization Settings', subtitle: 'Company profiles, policies, and role permissions' },
 };
@@ -37,6 +40,9 @@ export const TopNav: React.FC<TopNavProps> = ({ onOpenMobileMenu }) => {
     pageTitles[location.pathname] ||
     (location.pathname.startsWith('/payroll/imports/')
       ? pageTitles['/payroll/imports/:id']
+      : undefined) ||
+    (location.pathname.startsWith('/payroll/runs/')
+      ? pageTitles['/payroll/runs/:id']
       : undefined) || {
       title: 'PayPilot',
       subtitle: 'Enterprise HRMS & Payroll',
