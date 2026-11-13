@@ -244,3 +244,6 @@ export function createPayslipsRouter(
 
   return router;
 }
+
+export const payrollRunsRouter = createPayrollRunsRouter();
+export const payslipsRouter = createPayslipsRouter();
