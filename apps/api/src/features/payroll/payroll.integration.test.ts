@@ -489,3 +489,102 @@ describeDb('payroll calculation', () => {
     assert.equal(response.status, 404, response.text);
   });
 });
+
+let novemberRunId = '';
+
+describeDb('payroll lifecycle', () => {
+  it('creates a second draft run for transition checks', async () => {
+    const response = await request('POST', '/api/payroll-runs', {
+      body: { periodStart: '2026-11-01', periodEnd: '2026-11-30', payDate: '2026-11-30' },
+    });
+    assert.equal(response.status, 201, response.text);
+    novemberRunId = response.body.data.run.id;
+  });
+
+  it('rejects approving a draft run', async () => {
+    const response = await request('POST', `/api/payroll-runs/${novemberRunId}/approve`);
+    assert.equal(response.status, 409, response.text);
+    assert.equal(response.body.error.code, 'INVALID_PAYROLL_TRANSITION');
+  });
+
+  it('approves a calculated run and issues payslips', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/approve`);
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.run.status, 'APPROVED');
+    assert.equal(
+      response.body.data.run.payslips.every((payslip: any) => payslip.status === 'ISSUED'),
+      true
+    );
+  });
+
+  it('freezes an approved run', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/calculate`);
+    assert.equal(response.status, 409, response.text);
+    assert.equal(response.body.error.code, 'INVALID_PAYROLL_TRANSITION');
+  });
+
+  it('rejects paying a run that is not approved', async () => {
+    const response = await request('POST', `/api/payroll-runs/${novemberRunId}/pay`);
+    assert.equal(response.status, 409, response.text);
+  });
+
+  it('marks an approved run paid', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/pay`);
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.run.status, 'PAID');
+    assert.equal(
+      response.body.data.run.payslips.every((payslip: any) => payslip.status === 'PAID'),
+      true
+    );
+  });
+
+  it('requires a reason to void', async () => {
+    const missing = await request('POST', `/api/payroll-runs/${octoberRunId}/void`, {
+      body: {},
+    });
+    assert.equal(missing.status, 400, missing.text);
+  });
+
+  it('voids a paid run with a reason', async () => {
+    const response = await request('POST', `/api/payroll-runs/${octoberRunId}/void`, {
+      body: { reason: 'Duplicate cycle' },
+    });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.run.status, 'VOID');
+    assert.equal(response.body.data.run.voidReason, 'Duplicate cycle');
+  });
+
+  it('rejects voiding a draft run', async () => {
+    const response = await request('POST', `/api/payroll-runs/${novemberRunId}/void`, {
+      body: { reason: 'Not needed' },
+    });
+    assert.equal(response.status, 409, response.text);
+  });
+
+  it('forbids employees and managers from transitioning', async () => {
+    for (const role of [UserRole.EMPLOYEE, UserRole.MANAGER]) {
+      for (const action of ['approve', 'pay', 'void']) {
+        const response = await request(
+          'POST',
+          `/api/payroll-runs/${novemberRunId}/${action}`,
+          { role, body: { reason: 'test' } }
+        );
+        assert.equal(response.status, 403, `${role}/${action}: ${response.text}`);
+      }
+    }
+  });
+
+  it('writes an audit entry for each transition', async () => {
+    const actions = await adminPrisma.auditLog.findMany({
+      where: {
+        organizationId: orgA,
+        action: { in: ['payroll.run_created', 'payroll.run_calculated', 'payroll.run_approved', 'payroll.run_paid', 'payroll.run_voided'] },
+      },
+      select: { action: true },
+    });
+    const unique = new Set(actions.map((row) => row.action));
+    for (const action of ['payroll.run_created', 'payroll.run_calculated', 'payroll.run_approved', 'payroll.run_paid', 'payroll.run_voided']) {
+      assert.equal(unique.has(action), true, `missing ${action}`);
+    }
+  });
+});

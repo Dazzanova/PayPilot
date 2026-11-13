@@ -477,3 +477,160 @@ export async function calculatePayrollRun(
 
   return toRunDto(updated);
 }
+
+async function transitionPayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  runId: string,
+  action: 'approve' | 'pay',
+  from: PayrollStatus[],
+  to: PayrollStatus,
+  payslipStatus: PayslipStatus,
+  auditAction: string
+): Promise<PayrollRunDto> {
+  const data: Prisma.PayrollRunUpdateManyMutationInput = {
+    status: to,
+    processedById: userId,
+  };
+  if (action === 'approve') data.approvedAt = new Date();
+  if (action === 'pay') data.paidAt = new Date();
+
+  const guard = await tx.payrollRun.updateMany({
+    where: { id: runId, organizationId, status: { in: from } },
+    data,
+  });
+
+  if (guard.count === 0) {
+    const existing = await tx.payrollRun.findFirst({
+      where: { id: runId, organizationId },
+      select: { status: true },
+    });
+    if (!existing) {
+      throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
+    }
+    throw new HttpError(
+      409,
+      'INVALID_PAYROLL_TRANSITION',
+      `Cannot ${action} a payroll run in ${existing.status} status`,
+      { from: existing.status, action }
+    );
+  }
+
+  await tx.payslip.updateMany({
+    where: { organizationId, payrollRunId: runId },
+    data: { status: payslipStatus },
+  });
+
+  const run = await tx.payrollRun.findFirstOrThrow({
+    where: { id: runId, organizationId },
+    include: RUN_INCLUDE,
+  });
+
+  await tx.auditLog.create({
+    data: {
+      organizationId,
+      actorId: userId,
+      action: auditAction,
+      entityType: 'PayrollRun',
+      entityId: runId,
+      metadata: { status: to },
+    },
+  });
+
+  return toRunDto(run);
+}
+
+export function approvePayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  runId: string
+): Promise<PayrollRunDto> {
+  return transitionPayrollRun(
+    tx,
+    organizationId,
+    userId,
+    runId,
+    'approve',
+    [PayrollStatus.CALCULATED],
+    PayrollStatus.APPROVED,
+    PayslipStatus.ISSUED,
+    'payroll.run_approved'
+  );
+}
+
+export function payPayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  runId: string
+): Promise<PayrollRunDto> {
+  return transitionPayrollRun(
+    tx,
+    organizationId,
+    userId,
+    runId,
+    'pay',
+    [PayrollStatus.APPROVED],
+    PayrollStatus.PAID,
+    PayslipStatus.PAID,
+    'payroll.run_paid'
+  );
+}
+
+export async function voidPayrollRun(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  runId: string,
+  reason: string
+): Promise<PayrollRunDto> {
+  const guard = await tx.payrollRun.updateMany({
+    where: {
+      id: runId,
+      organizationId,
+      status: { in: [PayrollStatus.APPROVED, PayrollStatus.PAID] },
+    },
+    data: {
+      status: PayrollStatus.VOID,
+      voidedAt: new Date(),
+      voidReason: reason,
+      processedById: userId,
+    },
+  });
+
+  if (guard.count === 0) {
+    const existing = await tx.payrollRun.findFirst({
+      where: { id: runId, organizationId },
+      select: { status: true },
+    });
+    if (!existing) {
+      throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
+    }
+    throw new HttpError(
+      409,
+      'INVALID_PAYROLL_TRANSITION',
+      `Cannot void a payroll run in ${existing.status} status`,
+      { from: existing.status, action: 'void' }
+    );
+  }
+
+  const run = await tx.payrollRun.findFirstOrThrow({
+    where: { id: runId, organizationId },
+    include: RUN_INCLUDE,
+  });
+
+  await tx.auditLog.create({
+    data: {
+      organizationId,
+      actorId: userId,
+      action: 'payroll.run_voided',
+      entityType: 'PayrollRun',
+      entityId: runId,
+      metadata: { status: PayrollStatus.VOID, reason },
+    },
+  });
+
+  return toRunDto(run);
+}

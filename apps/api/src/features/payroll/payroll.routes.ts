@@ -10,8 +10,10 @@ import {
   payrollRunCreateSchema,
   payrollRunIdSchema,
   payrollRunListQuerySchema,
+  payrollRunVoidSchema,
 } from './payroll.schema';
 import {
+  approvePayrollRun,
   calculatePayrollRun,
   createDeductionRule,
   createPayrollRun,
@@ -19,7 +21,9 @@ import {
   getPayrollRun,
   listDeductionRules,
   listPayrollRuns,
+  payPayrollRun,
   updateDeductionRule,
+  voidPayrollRun,
 } from './payroll.service';
 
 const HR_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.HR_MANAGER] as const;
@@ -139,6 +143,40 @@ export function createPayrollRunsRouter(
       const { organizationId, userId } = actor(req);
       const id = parse(payrollRunIdSchema, req.params.id);
       const run = await calculatePayrollRun(tx, organizationId, userId, id);
+      return { body: { success: true, data: { run } } };
+    })
+  );
+
+  router.post(
+    '/:id/approve',
+    requireRole(...HR_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const run = await approvePayrollRun(tx, organizationId, userId, id);
+      return { body: { success: true, data: { run } } };
+    })
+  );
+
+  router.post(
+    '/:id/pay',
+    requireRole(...HR_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const run = await payPayrollRun(tx, organizationId, userId, id);
+      return { body: { success: true, data: { run } } };
+    })
+  );
+
+  router.post(
+    '/:id/void',
+    requireRole(...HR_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const input = parse(payrollRunVoidSchema, req.body);
+      const run = await voidPayrollRun(tx, organizationId, userId, id, input.reason);
       return { body: { success: true, data: { run } } };
     })
   );
