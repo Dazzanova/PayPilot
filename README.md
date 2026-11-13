@@ -379,7 +379,30 @@ See [docs/OBSERVABILITY.md](./docs/OBSERVABILITY.md) for the metric catalog, lab
 
 ---
 
-## 11. API Endpoints
+## 11. Payroll Calculation Engine
+
+Payroll runs are calculated from each active employee's base salary, prorated over
+Monday–Friday working days, with approved unpaid leave and `ABSENT`/`HALF_DAY`
+attendance reducing gross pay. Paid leave and `PRESENT`/`REMOTE` attendance count
+fully. Deductions come from per-organization rules (`RATE` or `FIXED`) stored in
+`payroll_deduction_rules` and seeded with defaults on first use.
+
+**Lifecycle:** `DRAFT → CALCULATING → CALCULATED → APPROVED → PAID`, with `VOID`
+available from `APPROVED` or `PAID`. Recalculation is allowed from `DRAFT` and
+`CALCULATED`; `APPROVED` freezes amounts; `PAID` and `VOID` are terminal. Every
+transition writes an audit log entry.
+
+**Roles:** `SUPER_ADMIN`, `ADMIN`, and `HR_MANAGER` create, calculate, approve,
+pay, void, and manage deduction rules. `MANAGER` reads runs and payslips.
+`EMPLOYEE` sees only their own payslips through **My Payslips**.
+
+**Output:** structured payslips with earning and deduction line items, run totals,
+and CSV export. PDF generation and progressive tax brackets are not implemented.
+
+See [`docs/PAYROLL.md`](docs/PAYROLL.md) for the algorithm, API, and operational
+details.
+
+## 12. API Endpoints
 
 ### Public
 
@@ -432,11 +455,11 @@ The web app exposes **Payroll Imports** at `/payroll/imports` with upload, histo
 
 ---
 
-## 12. Next Implementation Milestones
+## 13. Next Implementation Milestones
 
 1. ~~**Authentication & tenant isolation:**~~ Complete — Keycloak OIDC, JWKS verification, provider-neutral identity mapping, native PostgreSQL RLS.
 2. ~~**Employee Directory CRUD:**~~ Complete — validated API, tenant-scoped service, RLS enforcement, audit logging, live UI with create/edit and status changes.
 3. ~~**Payroll Import & Integrity Validation:**~~ Complete — CSV register upload, deterministic findings, persisted batches/records, history/detail APIs, exception reports, and the Payroll Imports UI.
 4. **Attendance System:** Geo/device-aware clock-in punch engine and timesheet export.
 5. **Leave Approval Engine:** Tiered manager approval workflows and holiday calendar calculations.
-6. **Payroll Calculation Engine:** Localized tax brackets, statutory deductions, and automated PDF payslip generation.
+6. ~~**Payroll Calculation Engine:**~~ Complete — salary-plus-attendance proration, configurable flat-rate deductions, guarded run lifecycle, structured payslips, and CSV export. Progressive tax brackets and PDF payslips remain future work.
