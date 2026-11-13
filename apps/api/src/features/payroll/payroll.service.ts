@@ -349,7 +349,14 @@ export async function calculatePayrollRun(
       organizationId,
       status: { in: [EmployeeStatus.ACTIVE, EmployeeStatus.ON_LEAVE] },
     },
-    select: { id: true, baseSalary: true, joinedAt: true },
+    select: {
+      id: true,
+      baseSalary: true,
+      joinedAt: true,
+      state: true,
+      pfApplicable: true,
+      esiApplicable: true,
+    },
   });
   const employeeIds = employees.map((employee) => employee.id);
 
@@ -397,6 +404,7 @@ export async function calculatePayrollRun(
     result = calculatePayroll({
       periodStart: dateOnly(run.periodStart),
       periodEnd: dateOnly(run.periodEnd),
+      payDate: dateOnly(run.payDate),
       currency: organization.currency,
       rules: rules.map((rule) => ({
         id: rule.id,
@@ -408,9 +416,13 @@ export async function calculatePayrollRun(
         id: employee.id,
         baseSalaryCents: employee.baseSalary.mul(100).toDecimalPlaces(0).toNumber(),
         joinedAt: dateOnly(employee.joinedAt),
+        state: employee.state,
+        pfApplicable: employee.pfApplicable,
+        esiApplicable: employee.esiApplicable,
         attendance: attendanceByEmployee.get(employee.id) ?? [],
         approvedLeave: leaveByEmployee.get(employee.id) ?? [],
       })),
+      statutory: null,
     });
   } catch (error) {
     if (error instanceof PayrollCalculationError) {

@@ -1,5 +1,9 @@
 import { AttendanceStatus, LeaveType } from '@prisma/client';
 import { roundHalfUp } from './payroll.money';
+import {
+  calculateStatutoryDeductions,
+  type StatutoryConfig,
+} from './payroll.statutory';
 
 export { roundHalfUp } from './payroll.money';
 
@@ -30,6 +34,9 @@ export interface CalcEmployee {
   id: string;
   baseSalaryCents: number;
   joinedAt: string;
+  state: string | null;
+  pfApplicable: boolean;
+  esiApplicable: boolean;
   attendance: Array<{ workDate: string; status: AttendanceStatus }>;
   approvedLeave: Array<{ leaveType: LeaveType; startDate: string; endDate: string }>;
 }
@@ -37,9 +44,12 @@ export interface CalcEmployee {
 export interface CalcInput {
   periodStart: string;
   periodEnd: string;
+  payDate: string;
   currency: string;
   rules: CalcRule[];
   employees: CalcEmployee[];
+  /** Resolved statutory configuration, or null for non-INR payroll. */
+  statutory: StatutoryConfig | null;
 }
 
 export interface CalcLine {
@@ -179,6 +189,35 @@ export function calculatePayroll(input: CalcInput): CalcResult {
     ];
 
     let totalDeductionsCents = 0;
+
+    const statutory = input.statutory
+      ? calculateStatutoryDeductions({
+          employee: {
+            baseSalaryCents: employee.baseSalaryCents,
+            grossCents,
+            state: employee.state,
+            pfApplicable: employee.pfApplicable,
+            esiApplicable: employee.esiApplicable,
+          },
+          config: input.statutory,
+          payDate: input.payDate,
+        })
+      : null;
+
+    if (statutory) {
+      for (const line of statutory.lines) {
+        totalDeductionsCents += line.amountCents;
+        lines.push({
+          kind: 'DEDUCTION',
+          label: line.label,
+          amountCents: line.amountCents,
+          ruleId: null,
+          sortOrder: line.sortOrder,
+        });
+      }
+    }
+
+    const customOffset = statutory ? 5 : 1;
     if (grossCents > 0) {
       rules.forEach((rule, index) => {
         const amountCents =
@@ -191,7 +230,7 @@ export function calculatePayroll(input: CalcInput): CalcResult {
           label: rule.name,
           amountCents,
           ruleId: rule.id,
-          sortOrder: index + 1,
+          sortOrder: customOffset + index,
         });
       });
     }

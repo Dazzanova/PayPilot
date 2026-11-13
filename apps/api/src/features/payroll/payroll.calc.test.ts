@@ -9,26 +9,80 @@ import {
   type CalcEmployee,
   type CalcRule,
 } from './payroll.calc';
+import type { StatutoryConfig } from './payroll.statutory';
 
 const OCTOBER = { periodStart: '2026-10-01', periodEnd: '2026-10-31' };
+
+const INR_CONFIG: StatutoryConfig = {
+  standardDeductionCents: 7_500_000,
+  rebateThresholdCents: 120_000_000,
+  rebateMaxCents: 6_000_000,
+  cessRateBps: 400,
+  pfEmployeeRateBps: 1200,
+  pfWageCeilingCents: 1_500_000,
+  esiEmployeeRateBps: 75,
+  esiGrossCeilingCents: 2_100_000,
+  taxSlabs: [
+    { lowerCents: 0, upperCents: 40_000_000, rateBps: 0 },
+    { lowerCents: 40_000_000, upperCents: 80_000_000, rateBps: 500 },
+    { lowerCents: 80_000_000, upperCents: 120_000_000, rateBps: 1000 },
+    { lowerCents: 120_000_000, upperCents: 160_000_000, rateBps: 1500 },
+    { lowerCents: 160_000_000, upperCents: 200_000_000, rateBps: 2000 },
+    { lowerCents: 200_000_000, upperCents: 240_000_000, rateBps: 2500 },
+    { lowerCents: 240_000_000, upperCents: null, rateBps: 3000 },
+  ],
+  ptSlabs: [
+    { lowerCents: 0, upperCents: 750_000, amountCents: 0, februaryAmountCents: 0 },
+    {
+      lowerCents: 750_000,
+      upperCents: 1_000_000,
+      amountCents: 17_500,
+      februaryAmountCents: 17_500,
+    },
+    {
+      lowerCents: 1_000_000,
+      upperCents: null,
+      amountCents: 20_000,
+      februaryAmountCents: 30_000,
+    },
+  ],
+};
 
 function employee(overrides: Partial<CalcEmployee> = {}): CalcEmployee {
   return {
     id: 'employee-1',
     baseSalaryCents: 5_000_000,
     joinedAt: '2020-01-01',
+    state: null,
+    pfApplicable: true,
+    esiApplicable: true,
     attendance: [],
     approvedLeave: [],
     ...overrides,
   };
 }
 
-function input(employees: CalcEmployee[], rules: CalcRule[] = []) {
-  return { ...OCTOBER, currency: 'USD', rules, employees };
+function input(
+  employees: CalcEmployee[],
+  rules: CalcRule[] = [],
+  statutory: StatutoryConfig | null = null
+) {
+  return {
+    ...OCTOBER,
+    payDate: '2026-10-31',
+    currency: 'USD',
+    rules,
+    employees,
+    statutory,
+  };
 }
 
-function run(employees: CalcEmployee[], rules: CalcRule[] = []) {
-  return calculatePayroll(input(employees, rules));
+function run(
+  employees: CalcEmployee[],
+  rules: CalcRule[] = [],
+  statutory: StatutoryConfig | null = null
+) {
+  return calculatePayroll(input(employees, rules, statutory));
 }
 
 describe('workingDaysIn', () => {
@@ -188,9 +242,11 @@ describe('calculatePayroll', () => {
         calculatePayroll({
           periodStart: '2026-10-03',
           periodEnd: '2026-10-04',
+          payDate: '2026-10-05',
           currency: 'USD',
           rules: [],
           employees: [employee()],
+          statutory: null,
         }),
       (error: unknown) =>
         error instanceof PayrollCalculationError && error.code === 'NO_WORKING_DAYS'
@@ -213,5 +269,49 @@ describe('calculatePayroll', () => {
     assert.equal(result.totalGrossCents, 0);
     assert.equal(result.totalDeductionsCents, 0);
     assert.equal(result.totalNetCents, 0);
+  });
+
+  it('emits statutory deductions before custom rules when configured', () => {
+    const result = run(
+      [
+        employee({
+          baseSalaryCents: 15_000_000,
+          state: 'MH',
+        }),
+      ],
+      [{ id: 'rule-health', name: 'Health insurance', type: 'FIXED', valueCents: 5_000 }],
+      INR_CONFIG
+    );
+
+    const payslip = result.payslips[0];
+    assert.equal(payslip.grossCents, 15_000_000);
+    assert.equal(payslip.totalDeductionsCents, 1_457_507);
+    assert.equal(payslip.netCents, 13_542_493);
+    assert.deepEqual(
+      payslip.lines.map((line) => [line.sortOrder, line.label, line.amountCents]),
+      [
+        [0, 'Base salary (prorated)', 15_000_000],
+        [1, 'Provident Fund (employee)', 180_000],
+        [3, 'Professional tax', 20_000],
+        [4, 'Income tax (TDS)', 1_252_507],
+        [5, 'Health insurance', 5_000],
+      ]
+    );
+  });
+
+  it('keeps custom-rule ordering when statutory config is absent', () => {
+    const result = run([employee()], [
+      { id: 'rule-health', name: 'Health', type: 'FIXED', valueCents: 5_000 },
+      { id: 'rule-advance', name: 'Advance', type: 'FIXED', valueCents: 1_000 },
+    ]);
+
+    assert.deepEqual(
+      result.payslips[0].lines.map((line) => [line.sortOrder, line.label]),
+      [
+        [0, 'Base salary (prorated)'],
+        [1, 'Advance'],
+        [2, 'Health'],
+      ]
+    );
   });
 });
