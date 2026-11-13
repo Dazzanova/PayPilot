@@ -1,4 +1,7 @@
 import { AttendanceStatus, LeaveType } from '@prisma/client';
+import { roundHalfUp } from './payroll.money';
+
+export { roundHalfUp } from './payroll.money';
 
 const DAY_MS = 86_400_000;
 
@@ -91,10 +94,6 @@ export function workingDaysIn(start: string, end: string): number {
     if (isWeekday(cursor)) count += 1;
   }
   return count;
-}
-
-export function roundHalfUp(value: number): number {
-  return Math.floor(value + 0.5);
 }
 
 function unpaidFractions(
