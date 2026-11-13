@@ -13,6 +13,15 @@ export function formatCurrency(amount: number, currency: string = 'USD'): string
   }).format(amount);
 }
 
+export function formatMoney(amount: number, currency: string = 'USD'): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 export function formatDate(dateString: string): string {
   // Date-only values are calendar dates, not instants; parse them as local time
   // so they do not shift to the previous day in negative UTC offsets.
