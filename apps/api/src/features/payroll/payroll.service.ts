@@ -5,17 +5,22 @@ import {
   PayrollStatus,
   PayslipStatus,
   Prisma,
+  UserRole,
 } from '@prisma/client';
 import { HttpError } from '../../lib/httpError';
 import { PayrollCalculationError, calculatePayroll, type CalcEmployee } from './payroll.calc';
+import { buildPayrollCsv, toPayrollCsvRow } from './payroll.csv';
 import {
+  PAYSLIP_INCLUDE,
   RUN_INCLUDE,
   toDeductionRuleDto,
+  toPayslipDto,
   toRunDto,
   toRunSummaryDto,
   type DeductionRuleDto,
   type PayrollRunDto,
   type PayrollRunSummaryDto,
+  type PayslipDto,
 } from './payroll.dto';
 import type {
   DeductionRuleCreateInput,
@@ -633,4 +638,70 @@ export async function voidPayrollRun(
   });
 
   return toRunDto(run);
+}
+
+export async function listMyPayslips(
+  tx: Tx,
+  organizationId: string,
+  userId: string
+): Promise<PayslipDto[]> {
+  const employee = await tx.employee.findFirst({
+    where: { organizationId, userId },
+    select: { id: true },
+  });
+  if (!employee) return [];
+
+  const payslips = await tx.payslip.findMany({
+    where: { organizationId, employeeId: employee.id },
+    include: PAYSLIP_INCLUDE,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+  return payslips.map(toPayslipDto);
+}
+
+export async function getPayslip(
+  tx: Tx,
+  organizationId: string,
+  userId: string,
+  role: UserRole,
+  payslipId: string
+): Promise<PayslipDto> {
+  const payslip = await tx.payslip.findFirst({
+    where: { id: payslipId, organizationId },
+    include: PAYSLIP_INCLUDE,
+  });
+  if (!payslip) throw new HttpError(404, 'PAYSLIP_NOT_FOUND', 'Payslip not found');
+
+  if (role === UserRole.EMPLOYEE) {
+    const employee = await tx.employee.findFirst({
+      where: { organizationId, userId },
+      select: { id: true },
+    });
+    if (!employee || payslip.employeeId !== employee.id) {
+      throw new HttpError(404, 'PAYSLIP_NOT_FOUND', 'Payslip not found');
+    }
+  }
+
+  return toPayslipDto(payslip);
+}
+
+export async function buildPayrollExport(
+  tx: Tx,
+  organizationId: string,
+  runId: string
+): Promise<{ content: string; filename: string }> {
+  const run = await tx.payrollRun.findFirst({
+    where: { id: runId, organizationId },
+    include: RUN_INCLUDE,
+  });
+  if (!run) throw new HttpError(404, 'PAYROLL_RUN_NOT_FOUND', 'Payroll run not found');
+
+  const content = buildPayrollCsv(
+    run.payslips.map((payslip) => toPayrollCsvRow(toPayslipDto(payslip)))
+  );
+
+  return {
+    content,
+    filename: `payroll-${dateOnly(run.periodStart)}-${dateOnly(run.periodEnd)}.csv`,
+  };
 }

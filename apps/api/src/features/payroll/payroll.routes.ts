@@ -14,12 +14,15 @@ import {
 } from './payroll.schema';
 import {
   approvePayrollRun,
+  buildPayrollExport,
   calculatePayrollRun,
   createDeductionRule,
   createPayrollRun,
   deleteDeductionRule,
   getPayrollRun,
+  getPayslip,
   listDeductionRules,
+  listMyPayslips,
   listPayrollRuns,
   payPayrollRun,
   updateDeductionRule,
@@ -182,6 +185,23 @@ export function createPayrollRunsRouter(
   );
 
   router.get(
+    '/:id/export',
+    requireRole(...READ_ROLES),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const file = await buildPayrollExport(tx, organizationId, id);
+      return {
+        file: {
+          content: file.content,
+          contentType: 'text/csv; charset=utf-8',
+          filename: file.filename,
+        },
+      };
+    })
+  );
+
+  router.get(
     '/:id',
     requireRole(...READ_ROLES),
     tenantRouteHandler(async (req, tx) => {
@@ -195,8 +215,32 @@ export function createPayrollRunsRouter(
   return router;
 }
 
-export function createPayslipsRouter(authMiddleware: RequestHandler = requireAuth): Router {
+export function createPayslipsRouter(
+  authMiddleware: RequestHandler = requireAuth
+): Router {
   const router = Router();
   router.use(authMiddleware);
+
+  router.get(
+    '/me',
+    requireRole(...READ_ROLES, UserRole.EMPLOYEE),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId } = actor(req);
+      const payslips = await listMyPayslips(tx, organizationId, userId);
+      return { body: { success: true, data: { payslips } } };
+    })
+  );
+
+  router.get(
+    '/:id',
+    requireRole(...READ_ROLES, UserRole.EMPLOYEE),
+    tenantRouteHandler(async (req, tx) => {
+      const { organizationId, userId, role } = actor(req);
+      const id = parse(payrollRunIdSchema, req.params.id);
+      const payslip = await getPayslip(tx, organizationId, userId, role, id);
+      return { body: { success: true, data: { payslip } } };
+    })
+  );
+
   return router;
 }

@@ -113,9 +113,10 @@ async function request(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const text = await response.text();
+  const contentType = response.headers.get('content-type') ?? '';
   return {
     status: response.status,
-    body: text ? JSON.parse(text) : null,
+    body: text && contentType.includes('application/json') ? JSON.parse(text) : null,
     headers: response.headers,
     text,
   };
@@ -586,5 +587,102 @@ describeDb('payroll lifecycle', () => {
     for (const action of ['payroll.run_created', 'payroll.run_calculated', 'payroll.run_approved', 'payroll.run_paid', 'payroll.run_voided']) {
       assert.equal(unique.has(action), true, `missing ${action}`);
     }
+  });
+});
+
+describeDb('payslip access and CSV export', () => {
+  it("returns only the caller's payslips from /payslips/me", async () => {
+    const response = await request('GET', '/api/payslips/me', {
+      role: UserRole.EMPLOYEE,
+      user: userEmpA,
+    });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.payslips.length, 1);
+    assert.equal(response.body.data.payslips[0].employeeId, empSelf);
+    assert.equal(response.body.data.payslips[0].lines.length, 4);
+  });
+
+  it('returns an empty list when no employee profile is linked', async () => {
+    const response = await request('GET', '/api/payslips/me', {
+      role: UserRole.MANAGER,
+      user: userMgrA,
+    });
+    assert.equal(response.status, 200, response.text);
+    assert.deepEqual(response.body.data.payslips, []);
+  });
+
+  it('lets an employee read their own payslip', async () => {
+    const mine = await request('GET', '/api/payslips/me', {
+      role: UserRole.EMPLOYEE,
+      user: userEmpA,
+    });
+    const id = mine.body.data.payslips[0].id;
+
+    const response = await request('GET', `/api/payslips/${id}`, {
+      role: UserRole.EMPLOYEE,
+      user: userEmpA,
+    });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.payslip.id, id);
+  });
+
+  it("hides a colleague's payslip from an employee", async () => {
+    const run = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const colleague = run.body.data.run.payslips.find(
+      (payslip: any) => payslip.employeeId === empFull
+    );
+
+    const response = await request('GET', `/api/payslips/${colleague.id}`, {
+      role: UserRole.EMPLOYEE,
+      user: userEmpA,
+    });
+    assert.equal(response.status, 404, response.text);
+  });
+
+  it('lets a manager read any payslip in the tenant', async () => {
+    const run = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const anyPayslip = run.body.data.run.payslips[0];
+
+    const response = await request('GET', `/api/payslips/${anyPayslip.id}`, {
+      role: UserRole.MANAGER,
+    });
+    assert.equal(response.status, 200, response.text);
+  });
+
+  it('exports the run as CSV', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}/export`);
+    assert.equal(response.status, 200, response.text);
+    assert.match(response.headers.get('content-type') ?? '', /text\/csv/);
+    assert.match(
+      response.headers.get('content-disposition') ?? '',
+      /payroll-2026-10-01-2026-10-31\.csv/
+    );
+
+    const lines = response.text.trim().split('\r\n');
+    assert.equal(lines.length, 5);
+    assert.ok(lines[0].startsWith('"employee_number","employee_name"'));
+    assert.ok(response.text.includes('"PC-1001"'));
+  });
+
+  it('forbids employees from exporting a run', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}/export`, {
+      role: UserRole.EMPLOYEE,
+    });
+    assert.equal(response.status, 403, response.text);
+  });
+
+  it('returns 404 for a payslip in another tenant', async () => {
+    const run = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const anyPayslip = run.body.data.run.payslips[0];
+
+    const response = await request('GET', `/api/payslips/${anyPayslip.id}`, { org: orgB });
+    assert.equal(response.status, 404, response.text);
+  });
+
+  it('denies direct runtime access to deduction rules without tenant context', async () => {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count FROM payroll_deduction_rules
+    `;
+    assert.equal(rows[0].count, 0n);
   });
 });
