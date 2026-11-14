@@ -25,7 +25,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/payroll/imports/:id': { title: 'Payroll Import Detail', subtitle: 'Validation findings, records, and exception report' },
   '/payroll/runs/:id': { title: 'Payroll Run Detail', subtitle: 'Payslips, totals, and lifecycle actions' },
   '/payroll/my-payslips': { title: 'My Payslips', subtitle: 'Your pay history and deductions' },
-  '/payroll/deduction-rules': { title: 'Deduction Rules', subtitle: 'Percentage and fixed payroll deductions' },
+  '/payroll/settings': { title: 'Payroll Settings', subtitle: 'Deductions, income tax, and statutory rates' },
   '/departments': { title: 'Departments', subtitle: 'Organizational units and department leaders' },
   '/settings': { title: 'Organization Settings', subtitle: 'Company profiles, policies, and role permissions' },
 };

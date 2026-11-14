@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { AppLayout } from '../components/layout/AppLayout';
@@ -15,7 +15,7 @@ const PayrollImportsPage = lazy(() => import('../pages/PayrollImportsPage').then
 const PayrollImportDetailPage = lazy(() => import('../pages/PayrollImportDetailPage').then(m => ({ default: m.PayrollImportDetailPage })));
 const PayrollRunDetailPage = lazy(() => import('../pages/PayrollRunDetailPage').then(m => ({ default: m.PayrollRunDetailPage })));
 const MyPayslipsPage = lazy(() => import('../pages/MyPayslipsPage').then(m => ({ default: m.MyPayslipsPage })));
-const PayrollDeductionRulesPage = lazy(() => import('../pages/PayrollDeductionRulesPage').then(m => ({ default: m.PayrollDeductionRulesPage })));
+const PayrollSettingsPage = lazy(() => import('../pages/PayrollSettingsPage').then(m => ({ default: m.PayrollSettingsPage })));
 const DepartmentsPage = lazy(() => import('../pages/DepartmentsPage').then(m => ({ default: m.DepartmentsPage })));
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
@@ -111,12 +111,16 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: 'payroll/deduction-rules',
+        path: 'payroll/settings',
         element: (
           <Suspense fallback={<LoadingFallback />}>
-            <PayrollDeductionRulesPage />
+            <PayrollSettingsPage />
           </Suspense>
         ),
+      },
+      {
+        path: 'payroll/deduction-rules',
+        element: <Navigate to="/payroll/settings?tab=deductions" replace />,
       },
       {
         path: 'departments',
