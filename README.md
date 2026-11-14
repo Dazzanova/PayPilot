@@ -387,17 +387,26 @@ attendance reducing gross pay. Paid leave and `PRESENT`/`REMOTE` attendance coun
 fully. Deductions come from per-organization rules (`RATE` or `FIXED`) stored in
 `payroll_deduction_rules` and seeded with defaults on first use.
 
+Organizations whose currency is `INR` additionally receive employee-side
+statutory deductions: PF (12% of basic pay capped at ₹15,000), ESI (0.75% when
+gross is at or below ₹21,000), state professional tax, and monthly TDS projected
+from annual base salary under the new income-tax regime. Rates and slabs are
+effective-dated, editable from **Payroll Settings**, and seeded with FY 2025-26
+values. Non-INR organizations keep the custom-rule behavior only.
+
 **Lifecycle:** `DRAFT → CALCULATING → CALCULATED → APPROVED → PAID`, with `VOID`
 available from `APPROVED` or `PAID`. Recalculation is allowed from `DRAFT` and
 `CALCULATED`; `APPROVED` freezes amounts; `PAID` and `VOID` are terminal. Every
 transition writes an audit log entry.
 
 **Roles:** `SUPER_ADMIN`, `ADMIN`, and `HR_MANAGER` create, calculate, approve,
-pay, void, and manage deduction rules. `MANAGER` reads runs and payslips.
-`EMPLOYEE` sees only their own payslips through **My Payslips**.
+pay, void, and manage deduction rules and statutory settings. `MANAGER` reads
+runs and payslips. `EMPLOYEE` sees only their own payslips through **My
+Payslips**.
 
 **Output:** structured payslips with earning and deduction line items, run totals,
-and CSV export. PDF generation and progressive tax brackets are not implemented.
+and CSV export. India new-regime TDS is calculated; PDF generation and old-regime
+tax planning are not implemented.
 
 See [`docs/PAYROLL.md`](docs/PAYROLL.md) for the algorithm, API, and operational
 details.
@@ -462,4 +471,4 @@ The web app exposes **Payroll Imports** at `/payroll/imports` with upload, histo
 3. ~~**Payroll Import & Integrity Validation:**~~ Complete — CSV register upload, deterministic findings, persisted batches/records, history/detail APIs, exception reports, and the Payroll Imports UI.
 4. **Attendance System:** Geo/device-aware clock-in punch engine and timesheet export.
 5. **Leave Approval Engine:** Tiered manager approval workflows and holiday calendar calculations.
-6. ~~**Payroll Calculation Engine:**~~ Complete — salary-plus-attendance proration, configurable flat-rate deductions, guarded run lifecycle, structured payslips, and CSV export. Progressive tax brackets and PDF payslips remain future work.
+6. ~~**Payroll Calculation Engine:**~~ Complete — salary-plus-attendance proration, configurable flat-rate deductions, guarded run lifecycle, structured payslips, and CSV export. India statutory deductions (PF, ESI, professional tax, new-regime TDS) are effective-dated and configurable from **Payroll Settings**. PDF payslips, employer contributions, and old-regime tax planning remain future work.
