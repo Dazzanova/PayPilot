@@ -19,6 +19,11 @@ import {
   createPayrollRunsRouter,
   createPayslipsRouter,
 } from './payroll.routes';
+import {
+  createPayrollProfessionalTaxRouter,
+  createPayrollStatutorySettingsRouter,
+  createPayrollTaxSlabsRouter,
+} from './payrollTax.routes';
 
 const dbIntegration = process.env.RUN_DB_INTEGRATION === '1';
 const describeDb = dbIntegration ? describe : describe.skip;
@@ -27,11 +32,19 @@ const describeDb = dbIntegration ? describe : describe.skip;
 // 5555/6666/7777, and 8888/9999.
 const orgA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const orgB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const orgINR = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const orgINRConfig = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const orgINRMissing = 'abababab-abab-4bab-8bab-abababababab';
 
 const userHrA = 'cccccccc-cccc-4ccc-8ccc-cccccccccc01';
 const userMgrA = 'cccccccc-cccc-4ccc-8ccc-cccccccccc02';
 const userEmpA = 'cccccccc-cccc-4ccc-8ccc-cccccccccc03';
 const userHrB = 'dddddddd-dddd-4ddd-8ddd-dddddddddd01';
+const userHrINR = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01';
+const userHrINRConfig = 'ffffffff-ffff-4fff-8fff-ffffffffff01';
+const userMgrINRConfig = 'ffffffff-ffff-4fff-8fff-ffffffffff02';
+const userEmpINRConfig = 'ffffffff-ffff-4fff-8fff-ffffffffff03';
+const userHrINRMissing = 'abababab-abab-4bab-8bab-ababababab01';
 
 const USER_BY_ROLE: Record<string, Record<string, string>> = {
   [orgA]: {
@@ -41,6 +54,17 @@ const USER_BY_ROLE: Record<string, Record<string, string>> = {
   },
   [orgB]: {
     [UserRole.HR_MANAGER]: userHrB,
+  },
+  [orgINR]: {
+    [UserRole.HR_MANAGER]: userHrINR,
+  },
+  [orgINRConfig]: {
+    [UserRole.HR_MANAGER]: userHrINRConfig,
+    [UserRole.MANAGER]: userMgrINRConfig,
+    [UserRole.EMPLOYEE]: userEmpINRConfig,
+  },
+  [orgINRMissing]: {
+    [UserRole.HR_MANAGER]: userHrINRMissing,
   },
 };
 
@@ -96,6 +120,9 @@ let empLeave: string;
 let empTerminated: string;
 let empSelf: string;
 let empB: string;
+let inrMh: string;
+let inrKa: string;
+let inrHigh: string;
 
 async function request(
   method: string,
@@ -131,13 +158,26 @@ before(async () => {
   adminPrisma = new PrismaClient({ datasources: { db: { url: process.env.DIRECT_URL } } });
 
   for (const org of [
-    { id: orgA, name: 'Payroll Calc Org A', slug: 'payroll-calc-org-a' },
-    { id: orgB, name: 'Payroll Calc Org B', slug: 'payroll-calc-org-b' },
+    { id: orgA, name: 'Payroll Calc Org A', slug: 'payroll-calc-org-a', currency: 'USD' },
+    { id: orgB, name: 'Payroll Calc Org B', slug: 'payroll-calc-org-b', currency: 'USD' },
+    { id: orgINR, name: 'Payroll Calc Org INR', slug: 'payroll-calc-org-inr', currency: 'INR' },
+    {
+      id: orgINRConfig,
+      name: 'Payroll Calc Org INR Config',
+      slug: 'payroll-calc-org-inr-config',
+      currency: 'INR',
+    },
+    {
+      id: orgINRMissing,
+      name: 'Payroll Calc Org INR Missing',
+      slug: 'payroll-calc-org-inr-missing',
+      currency: 'INR',
+    },
   ]) {
     await adminPrisma.organization.upsert({
       where: { id: org.id },
-      update: {},
-      create: { ...org, currency: 'USD', timezone: 'UTC' },
+      update: { currency: org.currency },
+      create: { ...org, timezone: 'UTC' },
     });
   }
 
@@ -146,6 +186,11 @@ before(async () => {
     [userMgrA, orgA, UserRole.MANAGER],
     [userEmpA, orgA, UserRole.EMPLOYEE],
     [userHrB, orgB, UserRole.HR_MANAGER],
+    [userHrINR, orgINR, UserRole.HR_MANAGER],
+    [userHrINRConfig, orgINRConfig, UserRole.HR_MANAGER],
+    [userMgrINRConfig, orgINRConfig, UserRole.MANAGER],
+    [userEmpINRConfig, orgINRConfig, UserRole.EMPLOYEE],
+    [userHrINRMissing, orgINRMissing, UserRole.HR_MANAGER],
   ] as const) {
     await adminPrisma.user.upsert({
       where: { id },
@@ -161,7 +206,7 @@ before(async () => {
     });
   }
 
-  const tenantIds = [orgA, orgB];
+  const tenantIds = [orgA, orgB, orgINR, orgINRConfig, orgINRMissing];
   await adminPrisma.payslipLineItem.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.payrollRun.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.payrollDeductionRule.deleteMany({ where: { organizationId: { in: tenantIds } } });
@@ -169,6 +214,17 @@ before(async () => {
   await adminPrisma.leaveRequest.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.auditLog.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.employee.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.payrollProfessionalTaxSlab.deleteMany({
+    where: { organizationId: { in: tenantIds } },
+  });
+  await adminPrisma.payrollProfessionalTaxSlabSet.deleteMany({
+    where: { organizationId: { in: tenantIds } },
+  });
+  await adminPrisma.payrollTaxSlab.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.payrollTaxSlabSet.deleteMany({ where: { organizationId: { in: tenantIds } } });
+  await adminPrisma.payrollStatutorySetting.deleteMany({
+    where: { organizationId: { in: tenantIds } },
+  });
 
   const createEmployee = (
     organizationId: string,
@@ -201,6 +257,32 @@ before(async () => {
   empSelf = (await createEmployee(orgA, 'PC-1005', 'Self', '2000.00', EmployeeStatus.ACTIVE, userEmpA)).id;
   empB = (await createEmployee(orgB, 'PC-2001', 'Other', '7000.00', EmployeeStatus.ACTIVE)).id;
 
+  const createInrEmployee = (
+    employeeNumber: string,
+    firstName: string,
+    baseSalary: string,
+    state: string
+  ) =>
+    adminPrisma.employee.create({
+      data: {
+        organizationId: orgINR,
+        employeeNumber,
+        firstName,
+        lastName: 'Tester',
+        email: `${employeeNumber.toLowerCase()}@example.com`,
+        jobTitle: 'Payroll Test',
+        employmentType: EmploymentType.FULL_TIME,
+        status: EmployeeStatus.ACTIVE,
+        joinedAt: new Date('2020-01-01T00:00:00.000Z'),
+        baseSalary,
+        state,
+      },
+    });
+
+  inrMh = (await createInrEmployee('INR-1001', 'Maya', '15000.00', 'MH')).id;
+  inrKa = (await createInrEmployee('INR-1002', 'Kabir', '16000.00', 'KA')).id;
+  inrHigh = (await createInrEmployee('INR-1003', 'Riya', '150000.00', 'MH')).id;
+
   await adminPrisma.attendanceRecord.create({
     data: {
       organizationId: orgA,
@@ -228,6 +310,9 @@ before(async () => {
   app.use('/api/payroll-runs', createPayrollRunsRouter(fakeAuth));
   app.use('/api/payslips', createPayslipsRouter(fakeAuth));
   app.use('/api/payroll-deduction-rules', createDeductionRulesRouter(fakeAuth));
+  app.use('/api/payroll-tax-slabs', createPayrollTaxSlabsRouter(fakeAuth));
+  app.use('/api/payroll-statutory-settings', createPayrollStatutorySettingsRouter(fakeAuth));
+  app.use('/api/payroll-professional-tax', createPayrollProfessionalTaxRouter(fakeAuth));
   app.use(errorHandler);
 
   await new Promise<void>((resolve) => {
@@ -248,7 +333,7 @@ after(async () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   }
 
-  const tenantIds = [orgA, orgB];
+  const tenantIds = [orgA, orgB, orgINR, orgINRConfig, orgINRMissing];
   await adminPrisma.payslipLineItem.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.payrollRun.deleteMany({ where: { organizationId: { in: tenantIds } } });
   await adminPrisma.payrollDeductionRule.deleteMany({ where: { organizationId: { in: tenantIds } } });
@@ -684,5 +769,324 @@ describeDb('payslip access and CSV export', () => {
       SELECT count(*)::bigint AS count FROM payroll_deduction_rules
     `;
     assert.equal(rows[0].count, 0n);
+  });
+});
+
+describeDb('India statutory payroll calculation', () => {
+  let inrOctoberRunId = '';
+
+  it('creates an INR payroll run', async () => {
+    const response = await request('POST', '/api/payroll-runs', {
+      org: orgINR,
+      body: {
+        periodStart: '2026-10-01',
+        periodEnd: '2026-10-31',
+        payDate: '2026-10-31',
+      },
+    });
+    assert.equal(response.status, 201, response.text);
+    inrOctoberRunId = response.body.data.run.id;
+  });
+
+  it('calculates PF, ESI, PT, TDS, and custom deductions in order', async () => {
+    const response = await request('POST', `/api/payroll-runs/${inrOctoberRunId}/calculate`, {
+      org: orgINR,
+    });
+    assert.equal(response.status, 200, response.text);
+
+    const run = response.body.data.run;
+    assert.equal(run.payslipCount, 3);
+    assert.equal(run.totalGross, '181000.00');
+    assert.equal(run.totalDeductions, '18907.57');
+    assert.equal(run.totalNet, '162092.43');
+
+    const byEmployee = new Map(
+      run.payslips.map((payslip: any) => [payslip.employeeId, payslip])
+    );
+
+    const mh = byEmployee.get(inrMh) as any;
+    assert.deepEqual(
+      mh.lines.map((line: any) => [line.kind, line.label, line.amount]),
+      [
+        ['EARNING', 'Base salary (prorated)', '15000.00'],
+        ['DEDUCTION', 'Provident Fund (employee)', '1800.00'],
+        ['DEDUCTION', 'ESI (employee)', '112.50'],
+        ['DEDUCTION', 'Professional tax', '200.00'],
+        ['DEDUCTION', 'Health insurance', '50.00'],
+      ]
+    );
+    assert.equal(mh.totalDeductions, '2162.50');
+    assert.equal(mh.netPay, '12837.50');
+
+    const ka = byEmployee.get(inrKa) as any;
+    assert.deepEqual(
+      ka.lines.map((line: any) => [line.label, line.amount]),
+      [
+        ['Base salary (prorated)', '16000.00'],
+        ['Provident Fund (employee)', '1800.00'],
+        ['ESI (employee)', '120.00'],
+        ['Professional tax', '200.00'],
+        ['Health insurance', '50.00'],
+      ]
+    );
+
+    const high = byEmployee.get(inrHigh) as any;
+    assert.deepEqual(
+      high.lines.map((line: any) => [line.label, line.amount]),
+      [
+        ['Base salary (prorated)', '150000.00'],
+        ['Provident Fund (employee)', '1800.00'],
+        ['Professional tax', '200.00'],
+        ['Income tax (TDS)', '12525.07'],
+        ['Health insurance', '50.00'],
+      ]
+    );
+    assert.equal(high.totalDeductions, '14575.07');
+    assert.equal(high.netPay, '135424.93');
+  });
+
+  it('uses the Maharashtra February professional-tax amount', async () => {
+    const created = await request('POST', '/api/payroll-runs', {
+      org: orgINR,
+      body: {
+        periodStart: '2027-02-01',
+        periodEnd: '2027-02-28',
+        payDate: '2027-02-28',
+      },
+    });
+    assert.equal(created.status, 201, created.text);
+    const runId = created.body.data.run.id;
+
+    const response = await request('POST', `/api/payroll-runs/${runId}/calculate`, {
+      org: orgINR,
+    });
+    assert.equal(response.status, 200, response.text);
+
+    const byEmployee = new Map(
+      response.body.data.run.payslips.map((payslip: any) => [payslip.employeeId, payslip])
+    );
+    const mh = byEmployee.get(inrMh) as any;
+    const ptLine = mh.lines.find((line: any) => line.label === 'Professional tax');
+    assert.equal(ptLine.amount, '300.00');
+
+    const ka = byEmployee.get(inrKa) as any;
+    const kaPtLine = ka.lines.find((line: any) => line.label === 'Professional tax');
+    assert.equal(kaPtLine.amount, '200.00');
+  });
+
+  it('leaves non-INR payroll on custom rules only', async () => {
+    const response = await request('GET', `/api/payroll-runs/${octoberRunId}`);
+    const payslip = response.body.data.run.payslips.find(
+      (row: any) => row.employeeId === empFull
+    );
+    assert.equal(
+      payslip.lines.some((line: any) =>
+        ['Provident Fund (employee)', 'ESI (employee)', 'Professional tax', 'Income tax (TDS)'].includes(
+          line.label
+        )
+      ),
+      false
+    );
+  });
+});
+
+describeDb('India statutory configuration API', () => {
+  it('returns the seeded income-tax slabs', async () => {
+    const response = await request('GET', '/api/payroll-tax-slabs', { org: orgINRConfig });
+    assert.equal(response.status, 200, response.text);
+    const taxSlabs = response.body.data.taxSlabs;
+    assert.equal(taxSlabs.effectiveFrom, '2025-04-01');
+    assert.equal(taxSlabs.slabs.length, 7);
+    assert.deepEqual(taxSlabs.slabs[0], { lower: '0.00', upper: '400000.00', rate: 0 });
+    assert.deepEqual(taxSlabs.slabs[6], { lower: '2400000.00', upper: null, rate: 30 });
+  });
+
+  it('returns the seeded statutory settings', async () => {
+    const response = await request('GET', '/api/payroll-statutory-settings', {
+      org: orgINRConfig,
+    });
+    assert.equal(response.status, 200, response.text);
+    const settings = response.body.data.statutorySettings;
+    assert.equal(settings.effectiveFrom, '2025-04-01');
+    assert.equal(settings.standardDeduction, '75000.00');
+    assert.equal(settings.rebateThreshold, '1200000.00');
+    assert.equal(settings.cessRate, 4);
+    assert.equal(settings.pfEmployeeRate, 12);
+    assert.equal(settings.esiEmployeeRate, 0.75);
+  });
+
+  it('returns seeded professional tax for MH and KA', async () => {
+    const mh = await request('GET', '/api/payroll-professional-tax?state=MH', {
+      org: orgINRConfig,
+    });
+    assert.equal(mh.status, 200, mh.text);
+    assert.equal(mh.body.data.professionalTax.slabs.length, 3);
+
+    const ka = await request('GET', '/api/payroll-professional-tax?state=KA', {
+      org: orgINRConfig,
+    });
+    assert.equal(ka.status, 200, ka.text);
+    assert.equal(ka.body.data.professionalTax.slabs.length, 2);
+  });
+
+  it('creates and replaces an effective-dated slab set', async () => {
+    const created = await request('PUT', '/api/payroll-tax-slabs', {
+      org: orgINRConfig,
+      body: {
+        effectiveFrom: '2026-04-01',
+        slabs: [
+          { lower: '0.00', upper: '500000.00', rate: 0 },
+          { lower: '500000.00', upper: null, rate: 10 },
+        ],
+      },
+    });
+    assert.equal(created.status, 200, created.text);
+    assert.equal(created.body.data.taxSlabs.slabs.length, 2);
+
+    const resolved = await request(
+      'GET',
+      '/api/payroll-tax-slabs?effectiveFrom=2026-04-01',
+      { org: orgINRConfig }
+    );
+    assert.equal(resolved.body.data.taxSlabs.effectiveFrom, '2026-04-01');
+
+    const replaced = await request('PUT', '/api/payroll-tax-slabs', {
+      org: orgINRConfig,
+      body: {
+        effectiveFrom: '2026-04-01',
+        slabs: [{ lower: '0.00', upper: null, rate: 8 }],
+      },
+    });
+    assert.equal(replaced.status, 200, replaced.text);
+    assert.equal(replaced.body.data.taxSlabs.slabs.length, 1);
+
+    const latest = await request('GET', '/api/payroll-tax-slabs', { org: orgINRConfig });
+    assert.equal(latest.body.data.taxSlabs.effectiveFrom, '2026-04-01');
+    assert.equal(latest.body.data.taxSlabs.slabs.length, 1);
+
+    const audit = await adminPrisma.auditLog.findFirst({
+      where: { organizationId: orgINRConfig, action: 'payroll.tax_slabs_updated' },
+    });
+    assert.ok(audit);
+  });
+
+  it('saves statutory settings and professional tax for a new effective date', async () => {
+    const settings = await request('PUT', '/api/payroll-statutory-settings', {
+      org: orgINRConfig,
+      body: {
+        effectiveFrom: '2026-04-01',
+        standardDeduction: '80000.00',
+        rebateThreshold: '1200000.00',
+        rebateMax: '60000.00',
+        cessRate: 4,
+        pfEmployeeRate: 12,
+        pfWageCeiling: '15000.00',
+        esiEmployeeRate: 0.75,
+        esiGrossCeiling: '21000.00',
+      },
+    });
+    assert.equal(settings.status, 200, settings.text);
+    assert.equal(settings.body.data.statutorySettings.standardDeduction, '80000.00');
+
+    const pt = await request('PUT', '/api/payroll-professional-tax', {
+      org: orgINRConfig,
+      body: {
+        state: 'MH',
+        effectiveFrom: '2026-04-01',
+        slabs: [
+          { lower: '0.00', upper: null, amount: '250.00', februaryAmount: '250.00' },
+        ],
+      },
+    });
+    assert.equal(pt.status, 200, pt.text);
+    assert.equal(pt.body.data.professionalTax.slabs[0].amount, '250.00');
+  });
+
+  it('rejects invalid slab sets', async () => {
+    const response = await request('PUT', '/api/payroll-tax-slabs', {
+      org: orgINRConfig,
+      body: {
+        effectiveFrom: '2026-04-01',
+        slabs: [
+          { lower: '0.00', upper: '500000.00', rate: 0 },
+          { lower: '600000.00', upper: null, rate: 10 },
+        ],
+      },
+    });
+    assert.equal(response.status, 400, response.text);
+    assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  });
+
+  it('restricts configuration to HR roles', async () => {
+    for (const role of [UserRole.MANAGER, UserRole.EMPLOYEE]) {
+      const response = await request('GET', '/api/payroll-tax-slabs', {
+        org: orgINRConfig,
+        role,
+      });
+      assert.equal(response.status, 403, `${role}: ${response.text}`);
+    }
+  });
+
+  it('isolates configuration between tenants', async () => {
+    const response = await request('GET', '/api/payroll-tax-slabs', { org: orgB });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(response.body.data.taxSlabs.effectiveFrom, '2025-04-01');
+    assert.equal(response.body.data.taxSlabs.slabs.length, 7);
+  });
+
+  it('denies direct runtime access to configuration without tenant context', async () => {
+    for (const table of [
+      'payroll_statutory_settings',
+      'payroll_tax_slab_sets',
+      'payroll_tax_slabs',
+      'payroll_professional_tax_slab_sets',
+      'payroll_professional_tax_slabs',
+    ]) {
+      const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+        `SELECT count(*)::bigint AS count FROM ${table}`
+      );
+      assert.equal(rows[0].count, 0n, table);
+    }
+  });
+});
+
+describeDb('India statutory configuration gaps', () => {
+  it('fails an INR calculation when no configuration is effective', async () => {
+    const seeded = await request('GET', '/api/payroll-statutory-settings', {
+      org: orgINRMissing,
+    });
+    assert.equal(seeded.status, 200, seeded.text);
+
+    const future = new Date('2030-01-01T00:00:00.000Z');
+    await adminPrisma.payrollStatutorySetting.updateMany({
+      where: { organizationId: orgINRMissing },
+      data: { effectiveFrom: future },
+    });
+    await adminPrisma.payrollTaxSlabSet.updateMany({
+      where: { organizationId: orgINRMissing },
+      data: { effectiveFrom: future },
+    });
+    await adminPrisma.payrollProfessionalTaxSlabSet.updateMany({
+      where: { organizationId: orgINRMissing },
+      data: { effectiveFrom: future },
+    });
+
+    const created = await request('POST', '/api/payroll-runs', {
+      org: orgINRMissing,
+      body: {
+        periodStart: '2026-10-01',
+        periodEnd: '2026-10-31',
+        payDate: '2026-10-31',
+      },
+    });
+    assert.equal(created.status, 201, created.text);
+
+    const response = await request(
+      'POST',
+      `/api/payroll-runs/${created.body.data.run.id}/calculate`,
+      { org: orgINRMissing }
+    );
+    assert.equal(response.status, 422, response.text);
+    assert.equal(response.body.error.code, 'STATUTORY_CONFIG_MISSING');
   });
 });

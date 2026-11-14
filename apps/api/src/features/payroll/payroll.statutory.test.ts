@@ -41,7 +41,7 @@ function config(overrides: Partial<StatutoryConfig> = {}): StatutoryConfig {
     esiEmployeeRateBps: 75,
     esiGrossCeilingCents: 2_100_000,
     taxSlabs: TAX_SLABS,
-    ptSlabs: null,
+    ptSlabsByState: {},
     ...overrides,
   };
 }
@@ -129,7 +129,7 @@ describe('calculateStatutoryDeductions — professional tax', () => {
   it('uses the Maharashtra slab for the prorated gross', () => {
     const result = calculate(
       { grossCents: 800_000, state: 'MH' },
-      { ptSlabs: MH_SLABS }
+      { ptSlabsByState: { MH: MH_SLABS } }
     );
     assert.equal(result.ptCents, 17_500);
   });
@@ -137,7 +137,7 @@ describe('calculateStatutoryDeductions — professional tax', () => {
   it('uses the higher Maharashtra slab above 10,000', () => {
     const result = calculate(
       { grossCents: 1_200_000, state: 'MH' },
-      { ptSlabs: MH_SLABS }
+      { ptSlabsByState: { MH: MH_SLABS } }
     );
     assert.equal(result.ptCents, 20_000);
   });
@@ -145,7 +145,7 @@ describe('calculateStatutoryDeductions — professional tax', () => {
   it('uses the Maharashtra February amount in February', () => {
     const result = calculate(
       { grossCents: 1_200_000, state: 'MH' },
-      { ptSlabs: MH_SLABS },
+      { ptSlabsByState: { MH: MH_SLABS } },
       '2026-02-28'
     );
     assert.equal(result.ptCents, 30_000);
@@ -154,7 +154,7 @@ describe('calculateStatutoryDeductions — professional tax', () => {
   it('uses the Karnataka slab', () => {
     const result = calculate(
       { grossCents: 1_600_000, state: 'KA' },
-      { ptSlabs: KA_SLABS }
+      { ptSlabsByState: { KA: KA_SLABS } }
     );
     assert.equal(result.ptCents, 20_000);
   });
@@ -162,7 +162,7 @@ describe('calculateStatutoryDeductions — professional tax', () => {
   it('is zero below the Karnataka threshold', () => {
     const result = calculate(
       { grossCents: 1_000_000, state: 'KA' },
-      { ptSlabs: KA_SLABS }
+      { ptSlabsByState: { KA: KA_SLABS } }
     );
     assert.equal(result.ptCents, 0);
   });
@@ -197,12 +197,12 @@ describe('calculateStatutoryDeductions — TDS', () => {
   it('projects annual PT from the regular monthly amount, not February', () => {
     const regular = calculate(
       { baseSalaryCents: 15_000_000, grossCents: 1_200_000, state: 'MH' },
-      { ptSlabs: MH_SLABS },
+      { ptSlabsByState: { MH: MH_SLABS } },
       '2026-01-31'
     );
     const february = calculate(
       { baseSalaryCents: 15_000_000, grossCents: 1_200_000, state: 'MH' },
-      { ptSlabs: MH_SLABS },
+      { ptSlabsByState: { MH: MH_SLABS } },
       '2026-02-28'
     );
     assert.equal(regular.tdsCents, february.tdsCents);
@@ -225,7 +225,7 @@ describe('calculateStatutoryDeductions — totals and lines', () => {
   it('orders lines PF, ESI, PT, TDS with sort orders 1-4', () => {
     const result = calculate(
       { baseSalaryCents: 15_000_000, grossCents: 1_200_000, state: 'MH' },
-      { ptSlabs: MH_SLABS }
+      { ptSlabsByState: { MH: MH_SLABS } }
     );
     assert.deepEqual(
       result.lines.map((line) => [line.sortOrder, line.label]),

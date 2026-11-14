@@ -31,21 +31,23 @@ const INR_CONFIG: StatutoryConfig = {
     { lowerCents: 200_000_000, upperCents: 240_000_000, rateBps: 2500 },
     { lowerCents: 240_000_000, upperCents: null, rateBps: 3000 },
   ],
-  ptSlabs: [
-    { lowerCents: 0, upperCents: 750_000, amountCents: 0, februaryAmountCents: 0 },
-    {
-      lowerCents: 750_000,
-      upperCents: 1_000_000,
-      amountCents: 17_500,
-      februaryAmountCents: 17_500,
-    },
-    {
-      lowerCents: 1_000_000,
-      upperCents: null,
-      amountCents: 20_000,
-      februaryAmountCents: 30_000,
-    },
-  ],
+  ptSlabsByState: {
+    MH: [
+      { lowerCents: 0, upperCents: 750_000, amountCents: 0, februaryAmountCents: 0 },
+      {
+        lowerCents: 750_000,
+        upperCents: 1_000_000,
+        amountCents: 17_500,
+        februaryAmountCents: 17_500,
+      },
+      {
+        lowerCents: 1_000_000,
+        upperCents: null,
+        amountCents: 20_000,
+        februaryAmountCents: 30_000,
+      },
+    ],
+  },
 };
 
 function employee(overrides: Partial<CalcEmployee> = {}): CalcEmployee {

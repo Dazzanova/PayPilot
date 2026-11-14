@@ -9,6 +9,12 @@ import {
 } from '@prisma/client';
 import { HttpError } from '../../lib/httpError';
 import { PayrollCalculationError, calculatePayroll, type CalcEmployee } from './payroll.calc';
+import type { StatutoryConfig } from './payroll.statutory';
+import {
+  ensurePayrollTaxConfig,
+  getEffectiveTaxConfig,
+  resolveStatutoryConfig,
+} from './payrollTax.service';
 import { buildPayrollCsv, toPayrollCsvRow } from './payroll.csv';
 import {
   PAYSLIP_INCLUDE,
@@ -41,12 +47,24 @@ const DEFAULT_RULES: Array<{
   { name: 'Health insurance', type: DeductionRuleType.FIXED, value: '50.00' },
 ];
 
+// Indian payroll computes TDS and PF in the statutory layer, so the legacy
+// income-tax and pension examples must not be seeded or they double-deduct.
+const INR_DEFAULT_RULES = [
+  { name: 'Health insurance', type: DeductionRuleType.FIXED, value: '50.00' },
+];
+
 export async function ensureDeductionRules(tx: Tx, organizationId: string): Promise<void> {
   const count = await tx.payrollDeductionRule.count({ where: { organizationId } });
   if (count > 0) return;
 
+  const organization = await tx.organization.findUnique({
+    where: { id: organizationId },
+    select: { currency: true },
+  });
+  const defaults = organization?.currency === 'INR' ? INR_DEFAULT_RULES : DEFAULT_RULES;
+
   await tx.payrollDeductionRule.createMany({
-    data: DEFAULT_RULES.map((rule) => ({
+    data: defaults.map((rule) => ({
       organizationId,
       name: rule.name,
       type: rule.type,
@@ -338,6 +356,24 @@ export async function calculatePayrollRun(
     select: { currency: true },
   });
 
+  let statutory: StatutoryConfig | null = null;
+  if (organization.currency === 'INR') {
+    await ensurePayrollTaxConfig(tx, organizationId);
+    const effective = await getEffectiveTaxConfig(
+      tx,
+      organizationId,
+      dateOnly(run.payDate)
+    );
+    if (!effective) {
+      throw new HttpError(
+        422,
+        'STATUTORY_CONFIG_MISSING',
+        'No statutory configuration is effective for the payroll pay date'
+      );
+    }
+    statutory = resolveStatutoryConfig(effective);
+  }
+
   await ensureDeductionRules(tx, organizationId);
   const rules = await tx.payrollDeductionRule.findMany({
     where: { organizationId, active: true },
@@ -422,7 +458,7 @@ export async function calculatePayrollRun(
         attendance: attendanceByEmployee.get(employee.id) ?? [],
         approvedLeave: leaveByEmployee.get(employee.id) ?? [],
       })),
-      statutory: null,
+      statutory,
     });
   } catch (error) {
     if (error instanceof PayrollCalculationError) {

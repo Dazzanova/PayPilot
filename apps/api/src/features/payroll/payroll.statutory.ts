@@ -39,8 +39,8 @@ export interface StatutoryConfig {
   esiEmployeeRateBps: number;
   esiGrossCeilingCents: number;
   taxSlabs: StatutoryTaxSlab[];
-  /** Slabs for the employee's state, or null when no state config applies. */
-  ptSlabs: StatutoryPtSlab[] | null;
+  /** Professional-tax slabs keyed by two-letter state code. */
+  ptSlabsByState: Record<string, StatutoryPtSlab[]>;
 }
 
 export interface StatutoryEmployee {
@@ -87,11 +87,14 @@ function calculatePt(
   config: StatutoryConfig,
   payDate: string
 ): { monthlyCents: number; chargedCents: number } {
-  if (!employee.state || !config.ptSlabs || employee.grossCents <= 0) {
+  const slabs = employee.state
+    ? config.ptSlabsByState[employee.state]
+    : undefined;
+  if (!slabs || employee.grossCents <= 0) {
     return { monthlyCents: 0, chargedCents: 0 };
   }
 
-  const slab = config.ptSlabs.find(
+  const slab = slabs.find(
     (candidate) =>
       employee.grossCents >= candidate.lowerCents &&
       (candidate.upperCents === null || employee.grossCents < candidate.upperCents)

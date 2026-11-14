@@ -223,8 +223,7 @@ export async function getEffectiveTaxConfig(
 }
 
 export function resolveStatutoryConfig(
-  effective: EffectiveTaxConfig,
-  state: string | null
+  effective: EffectiveTaxConfig
 ): StatutoryConfig {
   const { setting } = effective;
   return {
@@ -237,7 +236,7 @@ export function resolveStatutoryConfig(
     esiEmployeeRateBps: setting.esiEmployeeRateBps,
     esiGrossCeilingCents: setting.esiGrossCeilingCents,
     taxSlabs: effective.taxSlabs.map(toStatutoryTaxSlab),
-    ptSlabs: state ? effective.ptByState.get(state) ?? null : null,
+    ptSlabsByState: Object.fromEntries(effective.ptByState),
   };
 }
 
