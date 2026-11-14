@@ -36,6 +36,9 @@ type FormState = {
   employmentType: EmploymentType;
   joinedAt: string;
   baseSalary: string;
+  state: string;
+  pfApplicable: boolean;
+  esiApplicable: boolean;
 };
 
 function toFormState(employee: EmployeeDto | null): FormState {
@@ -50,6 +53,9 @@ function toFormState(employee: EmployeeDto | null): FormState {
       employmentType: 'FULL_TIME',
       joinedAt: new Date().toISOString().slice(0, 10),
       baseSalary: '',
+      state: '',
+      pfApplicable: true,
+      esiApplicable: true,
     };
   }
 
@@ -63,6 +69,9 @@ function toFormState(employee: EmployeeDto | null): FormState {
     employmentType: employee.employmentType,
     joinedAt: employee.joinedAt,
     baseSalary: employee.baseSalary,
+    state: employee.state ?? '',
+    pfApplicable: employee.pfApplicable,
+    esiApplicable: employee.esiApplicable,
   };
 }
 
@@ -148,6 +157,9 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
       employmentType: form.employmentType,
       joinedAt: form.joinedAt,
       baseSalary: form.baseSalary.trim(),
+      state: form.state === '' ? null : form.state,
+      pfApplicable: form.pfApplicable,
+      esiApplicable: form.esiApplicable,
     };
 
     setSaving(true);
@@ -339,8 +351,47 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         </div>
 
         <div>
+          <label className={labelClass} htmlFor="state">
+            State (professional tax)
+          </label>
+          <select
+            id="state"
+            className={fieldClass}
+            value={form.state}
+            onChange={(event) => update('state', event.target.value)}
+          >
+            <option value="">Not set</option>
+            <option value="MH">Maharashtra (MH)</option>
+            <option value="KA">Karnataka (KA)</option>
+          </select>
+          {errors.state && <p className={errorClass}>{errors.state}</p>}
+        </div>
+
+        <div>
+          <span className={labelClass}>Statutory coverage</span>
+          <div className="flex h-[38px] items-center gap-5">
+            <label className="flex items-center gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.pfApplicable}
+                onChange={(event) => update('pfApplicable', event.target.checked)}
+              />
+              PF applicable
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.esiApplicable}
+                onChange={(event) => update('esiApplicable', event.target.checked)}
+              />
+              ESI applicable
+            </label>
+          </div>
+        </div>
+
+        <div>
           <label className={labelClass} htmlFor="baseSalary">
-            Base salary (yearly)
+            Base salary (monthly)
           </label>
           <input
             id="baseSalary"
@@ -348,7 +399,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
             className={fieldClass}
             value={form.baseSalary}
             onChange={(event) => update('baseSalary', event.target.value)}
-            placeholder="90000.00"
+            placeholder="75000.00"
           />
           {errors.baseSalary && <p className={errorClass}>{errors.baseSalary}</p>}
         </div>
