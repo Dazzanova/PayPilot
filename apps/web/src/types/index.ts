@@ -156,6 +156,55 @@ export interface DeductionRuleDto {
   updatedAt: string;
 }
 
+export interface PayrollTaxSlabDto {
+  lower: string;
+  upper: string | null;
+  rate: number;
+}
+
+export interface PayrollTaxSlabsDto {
+  effectiveFrom: string;
+  slabs: PayrollTaxSlabDto[];
+}
+
+export interface TaxSlabSetInput {
+  effectiveFrom: string;
+  slabs: PayrollTaxSlabDto[];
+}
+
+export interface PayrollStatutorySettingsDto {
+  effectiveFrom: string;
+  standardDeduction: string;
+  rebateThreshold: string;
+  rebateMax: string;
+  cessRate: number;
+  pfEmployeeRate: number;
+  pfWageCeiling: string;
+  esiEmployeeRate: number;
+  esiGrossCeiling: string;
+}
+
+export type StatutorySettingsInput = PayrollStatutorySettingsDto;
+
+export interface PayrollProfessionalTaxSlabDto {
+  lower: string;
+  upper: string | null;
+  amount: string;
+  februaryAmount: string | null;
+}
+
+export interface PayrollProfessionalTaxDto {
+  state: string;
+  effectiveFrom: string;
+  slabs: PayrollProfessionalTaxSlabDto[];
+}
+
+export interface ProfessionalTaxInput {
+  state: string;
+  effectiveFrom: string;
+  slabs: PayrollProfessionalTaxSlabDto[];
+}
+
 export interface PayrollRunsResult {
   runs: PayrollRunSummaryDto[];
   pagination: {
@@ -178,6 +227,9 @@ export interface EmployeeDto {
   status: EmployeeStatus;
   joinedAt: string;
   baseSalary: string;
+  state: string | null;
+  pfApplicable: boolean;
+  esiApplicable: boolean;
   departmentId: string | null;
   departmentName: string | null;
   userId: string | null;
@@ -215,6 +267,9 @@ export interface EmployeeCreateInput {
   employmentType: EmploymentType;
   joinedAt: string;
   baseSalary: string;
+  state?: string | null;
+  pfApplicable?: boolean;
+  esiApplicable?: boolean;
 }
 
 export type EmployeeUpdateInput = Partial<EmployeeCreateInput>;
