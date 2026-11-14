@@ -311,7 +311,8 @@ export const EmployeesPage: React.FC = () => {
                   <TableHead>Job Title</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Base Salary</TableHead>
+                  <TableHead>Statutory</TableHead>
+                  <TableHead>Base Salary (monthly)</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -359,8 +360,27 @@ export const EmployeesPage: React.FC = () => {
                         {employee.status.replace(/_/g, ' ')}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {employee.state ?? 'No state'}
+                        </span>
+                        <Badge
+                          variant={employee.pfApplicable ? 'success' : 'neutral'}
+                          size="sm"
+                        >
+                          PF
+                        </Badge>
+                        <Badge
+                          variant={employee.esiApplicable ? 'success' : 'neutral'}
+                          size="sm"
+                        >
+                          ESI
+                        </Badge>
+                      </div>
+                    </TableCell>
                     <TableCell className="font-medium text-slate-800 text-xs">
-                      {formatCurrency(Number(employee.baseSalary))} / yr
+                      {formatCurrency(Number(employee.baseSalary))} / mo
                     </TableCell>
                     <TableCell className="text-xs text-slate-500">
                       {formatDate(employee.joinedAt)}

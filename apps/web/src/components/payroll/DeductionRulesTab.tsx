@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Loader2, Pencil, Plus, RefreshCw, Trash2, Wallet } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/Card';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 import {
   Table,
   TableHeader,
@@ -10,19 +10,19 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '../components/ui/Table';
-import { EmptyState } from '../components/ui/EmptyState';
-import { Modal } from '../components/ui/Modal';
-import { ApiError } from '../lib/api';
+} from '../ui/Table';
+import { EmptyState } from '../ui/EmptyState';
+import { Modal } from '../ui/Modal';
+import { ApiError } from '../../lib/api';
 import {
   createDeductionRule,
   deleteDeductionRule,
   listDeductionRules,
   updateDeductionRule,
-} from '../lib/payroll';
-import { useAuth } from '../contexts/AuthContext';
-import { formatMoney } from '../lib/utils';
-import type { DeductionRuleDto } from '../types';
+} from '../../lib/payroll';
+import { useAuth } from '../../contexts/AuthContext';
+import { formatMoney } from '../../lib/utils';
+import type { DeductionRuleDto } from '../../types';
 
 interface RuleForm {
   name: string;
@@ -40,7 +40,7 @@ const EMPTY_FORM: RuleForm = {
   active: true,
 };
 
-export const PayrollDeductionRulesPage: React.FC = () => {
+export const DeductionRulesTab: React.FC = () => {
   const { organization } = useAuth();
   const currency = organization?.currency ?? 'USD';
 
@@ -129,14 +129,11 @@ export const PayrollDeductionRulesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Deduction Rules</h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Percentage and fixed deductions applied to every payroll calculation.
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-xs text-slate-500">
+          Percentage and fixed deductions applied to every payroll calculation.
+        </p>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

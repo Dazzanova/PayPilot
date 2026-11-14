@@ -1,10 +1,16 @@
 import { api } from './api';
 import type {
   DeductionRuleDto,
+  PayrollProfessionalTaxDto,
   PayrollRunDto,
   PayrollRunsResult,
+  PayrollStatutorySettingsDto,
   PayrollStatus,
+  PayrollTaxSlabsDto,
   PayslipDto,
+  ProfessionalTaxInput,
+  StatutorySettingsInput,
+  TaxSlabSetInput,
 } from '../types';
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -95,4 +101,53 @@ export function updateDeductionRule(
 
 export function deleteDeductionRule(id: string): Promise<{ deleted: boolean }> {
   return api.delete<{ deleted: boolean }>(`/payroll-deduction-rules/${id}`);
+}
+
+export function getTaxSlabs(
+  effectiveFrom?: string
+): Promise<{ taxSlabs: PayrollTaxSlabsDto }> {
+  return api.get<{ taxSlabs: PayrollTaxSlabsDto }>(
+    `/payroll-tax-slabs${query({ effectiveFrom })}`
+  );
+}
+
+export function saveTaxSlabs(
+  input: TaxSlabSetInput
+): Promise<{ taxSlabs: PayrollTaxSlabsDto }> {
+  return api.put<{ taxSlabs: PayrollTaxSlabsDto }>('/payroll-tax-slabs', input);
+}
+
+export function getStatutorySettings(
+  effectiveFrom?: string
+): Promise<{ statutorySettings: PayrollStatutorySettingsDto }> {
+  return api.get<{ statutorySettings: PayrollStatutorySettingsDto }>(
+    `/payroll-statutory-settings${query({ effectiveFrom })}`
+  );
+}
+
+export function saveStatutorySettings(
+  input: StatutorySettingsInput
+): Promise<{ statutorySettings: PayrollStatutorySettingsDto }> {
+  return api.put<{ statutorySettings: PayrollStatutorySettingsDto }>(
+    '/payroll-statutory-settings',
+    input
+  );
+}
+
+export function getProfessionalTax(
+  state: string,
+  effectiveFrom?: string
+): Promise<{ professionalTax: PayrollProfessionalTaxDto }> {
+  return api.get<{ professionalTax: PayrollProfessionalTaxDto }>(
+    `/payroll-professional-tax${query({ state, effectiveFrom })}`
+  );
+}
+
+export function saveProfessionalTax(
+  input: ProfessionalTaxInput
+): Promise<{ professionalTax: PayrollProfessionalTaxDto }> {
+  return api.put<{ professionalTax: PayrollProfessionalTaxDto }>(
+    '/payroll-professional-tax',
+    input
+  );
 }

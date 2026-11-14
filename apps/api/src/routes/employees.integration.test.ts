@@ -163,6 +163,9 @@ const input = (overrides: Record<string, unknown> = {}) => ({
   employmentType: 'FULL_TIME' as const,
   joinedAt: '2026-01-15',
   baseSalary: '145000.00',
+  state: null,
+  pfApplicable: true,
+  esiApplicable: true,
   departmentId: null,
   ...overrides,
 });
@@ -578,6 +581,35 @@ describeDb('Employee directory service', () => {
       changedFields: ['jobTitle', 'baseSalary', 'departmentId'],
     });
     assert.equal(JSON.stringify(audit?.metadata).includes('155000'), false);
+  });
+
+  it('persists employee state and PF/ESI eligibility', async () => {
+    const created = await withOrganizationContext(orgA, (tx) =>
+      createEmployee(
+        tx,
+        orgA,
+        userA,
+        input({
+          email: 'statutory@example.com',
+          state: 'MH',
+          pfApplicable: false,
+          esiApplicable: false,
+        })
+      )
+    );
+    assert.equal(created.state, 'MH');
+    assert.equal(created.pfApplicable, false);
+    assert.equal(created.esiApplicable, false);
+
+    const updated = await withOrganizationContext(orgA, (tx) =>
+      updateEmployee(tx, orgA, userA, created.id, {
+        state: 'KA',
+        pfApplicable: true,
+      })
+    );
+    assert.equal(updated.state, 'KA');
+    assert.equal(updated.pfApplicable, true);
+    assert.equal(updated.esiApplicable, false);
   });
 
   it('changes status and audits the transition', async () => {

@@ -115,19 +115,24 @@ model Organization {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relationships
-  users                  User[]
-  departments            Department[]
-  employees              Employee[]
-  attendanceRecords      AttendanceRecord[]
-  leaveRequests          LeaveRequest[]
-  payrollRuns            PayrollRun[]
-  payslips               Payslip[]
-  auditLogs              AuditLog[]
-  payrollImportBatches   PayrollImportBatch[]
-  importedPayrollRecords ImportedPayrollRecord[]
-  validationFindings     ValidationFinding[]
-  payrollDeductionRules  PayrollDeductionRule[]
-  payslipLineItems       PayslipLineItem[]
+  users                          User[]
+  departments                    Department[]
+  employees                      Employee[]
+  attendanceRecords              AttendanceRecord[]
+  leaveRequests                  LeaveRequest[]
+  payrollRuns                    PayrollRun[]
+  payslips                       Payslip[]
+  auditLogs                      AuditLog[]
+  payrollImportBatches           PayrollImportBatch[]
+  importedPayrollRecords         ImportedPayrollRecord[]
+  validationFindings             ValidationFinding[]
+  payrollDeductionRules          PayrollDeductionRule[]
+  payslipLineItems               PayslipLineItem[]
+  payrollStatutorySettings       PayrollStatutorySetting[]
+  payrollTaxSlabSets             PayrollTaxSlabSet[]
+  payrollTaxSlabs                PayrollTaxSlab[]
+  payrollProfessionalTaxSlabSets PayrollProfessionalTaxSlabSet[]
+  payrollProfessionalTaxSlabs    PayrollProfessionalTaxSlab[]
 
   @@map("organizations")
 }
@@ -189,6 +194,9 @@ model Employee {
   status         EmployeeStatus @default(ACTIVE)
   joinedAt       DateTime       @map("joined_at") @db.Date
   baseSalary     Decimal        @map("base_salary") @db.Decimal(12, 2)
+  state          String?        @db.VarChar(2)
+  pfApplicable   Boolean        @default(true) @map("pf_applicable")
+  esiApplicable  Boolean        @default(true) @map("esi_applicable")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
@@ -284,23 +292,23 @@ model PayrollRun {
 }
 
 model Payslip {
-  id              String        @id @default(uuid())
-  organizationId  String        @map("organization_id")
-  payrollRunId    String        @map("payroll_run_id")
-  employeeId      String        @map("employee_id")
-  grossPay        Decimal       @map("gross_pay") @db.Decimal(12, 2)
-  totalDeductions Decimal       @map("total_deductions") @db.Decimal(12, 2)
-  netPay          Decimal       @map("net_pay") @db.Decimal(12, 2)
-  currency        String        @default("USD")
-  status          PayslipStatus @default(DRAFT)
-  documentUrl     String?       @map("document_url")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  baseSalary      Decimal       @default(0) @map("base_salary") @db.Decimal(12, 2)
-  workingDays     Decimal       @default(0) @map("working_days") @db.Decimal(5, 2)
-  paidDays        Decimal       @default(0) @map("paid_days") @db.Decimal(5, 2)
-  unpaidDays      Decimal       @default(0) @map("unpaid_days") @db.Decimal(5, 2)
-  absentDays      Decimal       @default(0) @map("absent_days") @db.Decimal(5, 2)
+  id              String            @id @default(uuid())
+  organizationId  String            @map("organization_id")
+  payrollRunId    String            @map("payroll_run_id")
+  employeeId      String            @map("employee_id")
+  grossPay        Decimal           @map("gross_pay") @db.Decimal(12, 2)
+  totalDeductions Decimal           @map("total_deductions") @db.Decimal(12, 2)
+  netPay          Decimal           @map("net_pay") @db.Decimal(12, 2)
+  currency        String            @default("USD")
+  status          PayslipStatus     @default(DRAFT)
+  documentUrl     String?           @map("document_url")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  baseSalary      Decimal           @default(0) @map("base_salary") @db.Decimal(12, 2)
+  workingDays     Decimal           @default(0) @map("working_days") @db.Decimal(5, 2)
+  paidDays        Decimal           @default(0) @map("paid_days") @db.Decimal(5, 2)
+  unpaidDays      Decimal           @default(0) @map("unpaid_days") @db.Decimal(5, 2)
+  absentDays      Decimal           @default(0) @map("absent_days") @db.Decimal(5, 2)
   lineItems       PayslipLineItem[]
 
   // Relationships
@@ -325,12 +333,100 @@ model PayrollDeductionRule {
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   lineItems    PayslipLineItem[]
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
   @@map("payroll_deduction_rules")
+}
+
+model PayrollStatutorySetting {
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  effectiveFrom          DateTime @map("effective_from") @db.Date
+  standardDeductionCents Int      @map("standard_deduction_cents")
+  rebateThresholdCents   Int      @map("rebate_threshold_cents")
+  rebateMaxCents         Int      @map("rebate_max_cents")
+  cessRateBps            Int      @map("cess_rate_bps")
+  pfEmployeeRateBps      Int      @map("pf_employee_rate_bps")
+  pfWageCeilingCents     Int      @map("pf_wage_ceiling_cents")
+  esiEmployeeRateBps     Int      @map("esi_employee_rate_bps")
+  esiGrossCeilingCents   Int      @map("esi_gross_ceiling_cents")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, effectiveFrom])
+  @@index([organizationId, effectiveFrom])
+  @@map("payroll_statutory_settings")
+}
+
+model PayrollTaxSlabSet {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  slabs        PayrollTaxSlab[]
+
+  @@unique([organizationId, effectiveFrom])
+  @@index([organizationId, effectiveFrom])
+  @@map("payroll_tax_slab_sets")
+}
+
+model PayrollTaxSlab {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  setId          String   @map("set_id")
+  lowerCents     Int      @map("lower_cents")
+  upperCents     Int?     @map("upper_cents")
+  rateBps        Int      @map("rate_bps")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  set          PayrollTaxSlabSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@unique([setId, lowerCents])
+  @@index([organizationId, setId])
+  @@map("payroll_tax_slabs")
+}
+
+model PayrollProfessionalTaxSlabSet {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  state          String   @db.VarChar(2)
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  slabs        PayrollProfessionalTaxSlab[]
+
+  @@unique([organizationId, state, effectiveFrom])
+  @@index([organizationId, state, effectiveFrom])
+  @@map("payroll_professional_tax_slab_sets")
+}
+
+model PayrollProfessionalTaxSlab {
+  id                  String   @id @default(uuid())
+  organizationId      String   @map("organization_id")
+  setId               String   @map("set_id")
+  lowerCents          Int      @map("lower_cents")
+  upperCents          Int?     @map("upper_cents")
+  amountCents         Int      @map("amount_cents")
+  februaryAmountCents Int?     @map("february_amount_cents")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  organization Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  set          PayrollProfessionalTaxSlabSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@unique([setId, lowerCents])
+  @@index([organizationId, setId])
+  @@map("payroll_professional_tax_slabs")
 }
 
 model PayslipLineItem {

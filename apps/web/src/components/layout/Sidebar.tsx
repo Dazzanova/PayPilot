@@ -32,7 +32,7 @@ const navItems: NavItem[] = [
   { label: 'Leave Management', path: '/leave', icon: CalendarOff, badge: '3' },
   { label: 'Payroll', path: '/payroll', icon: Banknote },
   { label: 'My Payslips', path: '/payroll/my-payslips', icon: Receipt },
-  { label: 'Deduction Rules', path: '/payroll/deduction-rules', icon: Wallet, hrOnly: true },
+  { label: 'Payroll Settings', path: '/payroll/settings', icon: Wallet, hrOnly: true },
   { label: 'Payroll Imports', path: '/payroll/imports', icon: FileUp },
   { label: 'Departments', path: '/departments', icon: Building2 },
   { label: 'Settings', path: '/settings', icon: Settings },

@@ -276,6 +276,9 @@ export async function createEmployee(
         employmentType: input.employmentType,
         joinedAt: new Date(`${input.joinedAt}T00:00:00.000Z`),
         baseSalary: new Prisma.Decimal(input.baseSalary),
+        state: input.state ?? null,
+        pfApplicable: input.pfApplicable,
+        esiApplicable: input.esiApplicable,
         departmentId: input.departmentId ?? null,
       },
       include: DEPARTMENT_INCLUDE,
@@ -373,6 +376,24 @@ export async function updateEmployee(
       data.baseSalary = baseSalary;
       changedFields.push('baseSalary');
     }
+  }
+  if (input.state !== undefined && input.state !== existing.state) {
+    data.state = input.state;
+    changedFields.push('state');
+  }
+  if (
+    input.pfApplicable !== undefined &&
+    input.pfApplicable !== existing.pfApplicable
+  ) {
+    data.pfApplicable = input.pfApplicable;
+    changedFields.push('pfApplicable');
+  }
+  if (
+    input.esiApplicable !== undefined &&
+    input.esiApplicable !== existing.esiApplicable
+  ) {
+    data.esiApplicable = input.esiApplicable;
+    changedFields.push('esiApplicable');
   }
   if (input.departmentId !== undefined && input.departmentId !== existing.departmentId) {
     data.department = input.departmentId
