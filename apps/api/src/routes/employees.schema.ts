@@ -30,6 +30,12 @@ const baseSalarySchema = z
     'Salary must be greater than zero and fit 12 digits with 2 decimals'
   );
 
+const stateSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Z]{2}$/, 'State must be a two-letter uppercase code')
+  .nullable();
+
 const employeeFields = {
   firstName: z.string().trim().min(1).max(100),
   lastName: z.string().trim().min(1).max(100),
@@ -61,9 +67,18 @@ const employeeFields = {
   employmentType: z.nativeEnum(EmploymentType),
   joinedAt: dateOnlySchema,
   baseSalary: baseSalarySchema,
+  state: stateSchema.optional(),
+  pfApplicable: z.boolean(),
+  esiApplicable: z.boolean(),
 };
 
-export const employeeCreateSchema = z.object(employeeFields).strict();
+export const employeeCreateSchema = z
+  .object(employeeFields)
+  .extend({
+    pfApplicable: z.boolean().default(true),
+    esiApplicable: z.boolean().default(true),
+  })
+  .strict();
 
 export const employeeUpdateSchema = z
   .object(employeeFields)

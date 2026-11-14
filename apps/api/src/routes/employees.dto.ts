@@ -16,6 +16,9 @@ export interface EmployeeDto {
   status: EmployeeStatus;
   joinedAt: string;
   baseSalary: string;
+  state: string | null;
+  pfApplicable: boolean;
+  esiApplicable: boolean;
   departmentId: string | null;
   departmentName: string | null;
   userId: string | null;
@@ -36,6 +39,9 @@ export function toEmployeeDto(employee: EmployeeWithDepartment): EmployeeDto {
     status: employee.status,
     joinedAt: employee.joinedAt.toISOString().slice(0, 10),
     baseSalary: employee.baseSalary.toFixed(2),
+    state: employee.state,
+    pfApplicable: employee.pfApplicable,
+    esiApplicable: employee.esiApplicable,
     departmentId: employee.departmentId,
     departmentName: employee.department?.name ?? null,
     userId: employee.userId,

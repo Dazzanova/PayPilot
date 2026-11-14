@@ -97,6 +97,35 @@ describe('employeeCreateSchema', () => {
       false
     );
   });
+
+  it('defaults PF and ESI to applicable and state to absent', () => {
+    const parsed = employeeCreateSchema.parse(valid);
+    assert.equal(parsed.pfApplicable, true);
+    assert.equal(parsed.esiApplicable, true);
+    assert.equal(parsed.state, undefined);
+  });
+
+  it('accepts a state and PF/ESI opt-outs', () => {
+    const parsed = employeeCreateSchema.parse({
+      ...valid,
+      state: 'MH',
+      pfApplicable: false,
+      esiApplicable: false,
+    });
+    assert.equal(parsed.state, 'MH');
+    assert.equal(parsed.pfApplicable, false);
+    assert.equal(parsed.esiApplicable, false);
+  });
+
+  it('accepts a null state', () => {
+    assert.equal(employeeCreateSchema.parse({ ...valid, state: null }).state, null);
+  });
+
+  it('rejects malformed state codes', () => {
+    for (const state of ['mh', 'MHR', 'M', '12']) {
+      assert.equal(employeeCreateSchema.safeParse({ ...valid, state }).success, false);
+    }
+  });
 });
 
 describe('employeeUpdateSchema', () => {
@@ -117,6 +146,17 @@ describe('employeeUpdateSchema', () => {
     ]) {
       assert.equal(employeeUpdateSchema.safeParse(value).success, false);
     }
+  });
+
+  it('accepts statutory field updates', () => {
+    assert.deepEqual(employeeUpdateSchema.parse({ state: 'KA' }), { state: 'KA' });
+    assert.deepEqual(employeeUpdateSchema.parse({ pfApplicable: false }), {
+      pfApplicable: false,
+    });
+    assert.deepEqual(employeeUpdateSchema.parse({ esiApplicable: false }), {
+      esiApplicable: false,
+    });
+    assert.deepEqual(employeeUpdateSchema.parse({ state: null }), { state: null });
   });
 });
 
@@ -203,6 +243,9 @@ describe('toEmployeeDto', () => {
 
     assert.equal(dto.joinedAt, '2026-01-15');
     assert.equal(dto.baseSalary, '145000.00');
+    assert.equal(dto.state, null);
+    assert.equal(dto.pfApplicable, true);
+    assert.equal(dto.esiApplicable, true);
     assert.equal(dto.departmentName, 'Engineering');
     assert.equal(dto.createdAt, '2026-01-01T10:00:00.000Z');
   });
